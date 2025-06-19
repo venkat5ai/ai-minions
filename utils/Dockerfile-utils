@@ -1,0 +1,47 @@
+# Use Google's official Cloud SDK Alpine image as the base.
+FROM google/cloud-sdk:alpine
+
+# Maintainer (optional)
+LABEL maintainer="Venkata 5AI"
+
+# Set environment variables
+ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+    PYTHONUNBUFFERED=1 \
+    PIPX_HOME=/opt/pipx \
+    PIPX_BIN_DIR=/usr/local/bin \
+    POETRY_HOME=/opt/poetry \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_VIRTUALENVS_IN_PROJECT=false \
+    PATH="/root/.local/bin:/opt/poetry/bin:$PATH"
+
+# Install system packages
+RUN apk update && \
+    apk add --no-cache \
+    git \
+    vim \
+    docker \
+    bash \
+    python3 \
+    py3-pip \
+    python3-dev \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    openssl-dev \
+    make \
+    curl && \
+    # Install pipx
+    python3 -m pip install --no-cache-dir --break-system-packages pipx && \
+    # Install Poetry using pipx's python module directly
+    python3 -m pipx install poetry==2.1.3 && \
+    # Clean up
+    rm -rf /var/cache/apk/*
+
+# Set the default shell to bash
+SHELL ["/bin/bash", "-c"]
+
+# Set the default command to bash
+CMD ["bash"]
+
+# Set working directory
+WORKDIR /workspace

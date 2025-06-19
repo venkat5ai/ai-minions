@@ -1,0 +1,91 @@
+openapi: 3.0.0
+info:
+  title: JSONPlaceholder API
+  version: "1.0.0"
+  description: Fake Online REST API for Testing and Prototyping
+servers:
+  - url: https://jsonplaceholder.typicode.com/
+paths:
+  /posts:
+    get:
+      summary: Get all posts
+      operationId: getAllPosts
+      responses:
+        "200":
+          description: A list of posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object # Define post structure if needed, or keep generic
+  /posts/{postId}:
+    get:
+      summary: Get a specific post by ID
+      operationId: getPostById
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A single post
+          content:
+            application/json:
+              schema:
+                type: object # Define post structure if needed
+  /users:
+    get:
+      summary: Get all users
+      operationId: getAllUsers
+      responses:
+        "200":
+          description: A list of users
+  /users/{userId}:
+    get:
+      summary: Get a specific user by ID
+      operationId: getUserById
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A single user
+  /comments:
+    get:
+      summary: Get all comments
+      operationId: getAllComments
+      responses:
+        "200":
+          description: A list of comments
+  /comments/{commentId}:
+    get:
+      summary: Get a specific comment by ID
+      operationId: getCommentById
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A single comment
+  /posts/{postId}/comments:
+    get:
+      summary: Get comments for a specific post
+      operationId: getCommentsForPost
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A list of comments for the post

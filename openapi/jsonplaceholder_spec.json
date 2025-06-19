@@ -1,0 +1,292 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "JSONPlaceholder API",
+        "version": "1.0.0",
+        "description": "API for testing and prototyping using JSONPlaceholder."
+    },
+    "servers": [
+        {"url": "https://jsonplaceholder.typicode.com"}
+    ],
+    "paths": {
+        "/users": {
+            "get": {
+                "operationId": "listUsers",
+                "summary": "Retrieve a list of all users",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "query",
+                        "description": "Filter users by ID",
+                        "schema": {"type": "integer"},
+                        "required": false
+                    },
+                    {
+                        "name": "username",
+                        "in": "query",
+                        "description": "Filter users by username",
+                        "schema": {"type": "string"},
+                        "required": false
+                    },
+                    {
+                        "name": "email",
+                        "in": "query",
+                        "description": "Filter users by email",
+                        "schema": {"type": "string"},
+                        "required": false
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "A list of users"}
+                }
+            },
+            "post": {
+                "operationId": "createUser",
+                "summary": "Create a new user",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "username": {"type": "string"},
+                                    "email": {"type": "string"},
+                                    "address": {"type": "object"},
+                                    "phone": {"type": "string"},
+                                    "website": {"type": "string"},
+                                    "company": {"type": "object"}
+                                },
+                                "required": ["name", "username", "email"]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {"description": "User created successfully"}
+                }
+            }
+        },
+        "/users/{id}": {
+            "get": {
+                "operationId": "getUserById",
+                "summary": "Retrieve a user by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the user to retrieve",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "User data"},
+                    "404": {"description": "User not found"}
+                }
+            },
+            "put": {
+                "operationId": "updateUser",
+                "summary": "Update an existing user by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the user to update",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "integer"},
+                                    "name": {"type": "string"},
+                                    "username": {"type": "string"},
+                                    "email": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {"description": "User updated successfully"}
+                }
+            },
+            "delete": {
+                "operationId": "deleteUser",
+                "summary": "Delete a user by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the user to delete",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "User deleted successfully"}
+                }
+            }
+        },
+        "/posts": {
+            "get": {
+                "operationId": "listPosts",
+                "summary": "Retrieve a list of all posts",
+                "parameters": [
+                    {
+                        "name": "userId",
+                        "in": "query",
+                        "description": "Filter posts by user ID",
+                        "schema": {"type": "integer"},
+                        "required": false
+                    },
+                    {
+                        "name": "title",
+                        "in": "query",
+                        "description": "Filter posts by title",
+                        "schema": {"type": "string"},
+                        "required": false
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "A list of posts"}
+                }
+            },
+            "post": {
+                "operationId": "createPost",
+                "summary": "Create a new post",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "title": {"type": "string"},
+                                    "body": {"type": "string"},
+                                    "userId": {"type": "integer"}
+                                },
+                                "required": ["title", "body", "userId"]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {"description": "Post created successfully"}
+                }
+            }
+        },
+        "/posts/{id}": {
+            "get": {
+                "operationId": "getPostById",
+                "summary": "Retrieve a post by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the post to retrieve",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "Post data"},
+                    "404": {"description": "Post not found"}
+                }
+            }
+        },
+        "/posts/{id}/comments": {
+            "get": {
+                "operationId": "listCommentsForPost",
+                "summary": "Retrieve comments for a specific post",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the post to retrieve comments for",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "A list of comments for the post"}
+                }
+            }
+        },
+        "/comments": {
+            "get": {
+                "operationId": "listComments",
+                "summary": "Retrieve a list of all comments",
+                "parameters": [
+                    {
+                        "name": "postId",
+                        "in": "query",
+                        "description": "Filter comments by post ID",
+                        "schema": {"type": "integer"},
+                        "required": false
+                    },
+                    {
+                        "name": "email",
+                        "in": "query",
+                        "description": "Filter comments by email",
+                        "schema": {"type": "string"},
+                        "required": false
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "A list of comments"}
+                }
+            },
+            "post": {
+                "operationId": "createComment",
+                "summary": "Create a new comment",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "postId": {"type": "integer"},
+                                    "name": {"type": "string"},
+                                    "email": {"type": "string"},
+                                    "body": {"type": "string"}
+                                },
+                                "required": ["postId", "name", "email", "body"]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {"description": "Comment created successfully"}
+                }
+            }
+        },
+        "/comments/{id}": {
+            "get": {
+                "operationId": "getCommentById",
+                "summary": "Retrieve a comment by ID",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the comment to retrieve",
+                        "schema": {"type": "integer"},
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {"description": "Comment data"},
+                    "404": {"description": "Comment not found"}
+                }
+            }
+        }
+    }
+}

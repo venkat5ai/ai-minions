@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Community Assistant</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script> 
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;600;700;800&display=swap'); /* Added Montserrat for headings, and 800 weight for Inter */
+
+        :root {
+            /* Blues for main elements and chat */
+            --primary-blue: #3498db; /* A friendly, inviting blue */
+            --secondary-blue: #87ceeb; /* Sky blue */
+            
+            /* Greens for nature/community feel */
+            --primary-green: #2ecc71; /* Vibrant green for accents */
+            --secondary-green: #a2d9ab; /* Lighter green */
+            --dark-green: #27ae60; /* Darker green for deep accents */
+
+            /* Earthy tones for warmth - UPDATED */
+            --earth-brown: #a0522d;
+            --light-cream: #fdf6e3; 
+            --light-brown-bg: #f8f0e3; /* A soft, light brown for sidebar */
+
+            /* Text colors */
+            --text-dark: #212529; /* Deep grey for readability */
+            --text-light: #6c757d; /* Muted text */
+            
+            /* Backgrounds */
+            --bg-body-gradient-start: #e0f2f7; /* Light cyan-blue */
+            --bg-body-gradient-end: #d4e6f1; /* Slightly darker blue */
+            --bg-container: #ffffff;
+            --bg-sidebar: var(--light-brown-bg); /* Changed to light brown */
+            
+            /* Borders and shadows */
+            --border-light: #dee2e6;
+            --shadow-subtle: 0 4px 10px rgba(0, 0, 0, 0.05);
+            --shadow-medium: 0 10px 25px rgba(0, 0, 0, 0.1);
+            --shadow-deep: 0 15px 40px rgba(0, 0, 0, 0.15);
+
+            /* Chat Bubbles */
+            --chat-bubble-user: #e3f2fd; /* Lightest blue */
+            --chat-bubble-ai: #f8f9fa;   /* Off-white light grey */
+            
+            /* Status colors */
+            --success-color: #28a745;
+            --error-color: #dc3545;
+        }
+
+        html, body {
+            height: 100%; /* Important for vh to work correctly */
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center; /* Center vertically for a tighter layout */
+            height: 100vh; /* Use height, not min-height to constrain */
+            background: linear-gradient(135deg, var(--bg-body-gradient-start) 0%, var(--bg-body-gradient-end) 100%);
+            /* Background image for residential community feel */
+            background-image: url('https://placehold.co/1920x1080/d4c8b3/a2d9ab?text=Community+Landscape'); /* Changed background image tint to match brown */
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            backdrop-filter: blur(4px) grayscale(40%); /* Subtle blur and desaturation for background */
+            padding: 25px; /* Apply padding outside the height calculation */
+            box-sizing: border-box; /* Include padding in element's total width and height */
+            color: var(--text-dark);
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: row;
+            gap: 25px; /* Increased gap */
+            width: 100%;
+            max-width: 1300px; /* Wider container */
+            background-color: var(--bg-container);
+            border-radius: 25px; /* More rounded corners */
+            box-shadow: var(--shadow-deep); /* Deeper, softer shadow */
+            overflow: hidden; /* Prevents container from scrolling, its children handle it */
+            height: 100%; /* Make container take full height available from body */
+            animation: fadeInPulse 0.8s ease-out forwards; /* Fade in and subtle pulse animation */
+            position: relative; /* For z-index of session ID */
+            z-index: 10;
+        }
+
+        @keyframes fadeInPulse {
+            0% { opacity: 0; transform: scale(0.98); }
+            70% { opacity: 1; transform: scale(1.005); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* --- Sidebar / Document Upload Section --- */
+        .document-section {
+            flex: 0 0 380px; /* Wider fixed sidebar */
+            padding: 35px; /* More padding */
+            background-color: var(--bg-sidebar); /* Light brown background */
+            border-right: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            gap: 30px; /* Increased gap */
+            position: relative;
+            height: 100%; /* Crucial: Make document-section take 100% of container height */
+        }
+
+        .document-section h2 {
+            font-family: 'Montserrat', sans-serif; /* Different font for headings */
+            font-size: 1.8em;
+            margin-top: 0;
+            color: var(--primary-blue); 
+            font-weight: 600; /* Reduced boldness */
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 15px; /* Space for separator */
+            border-bottom: 2px solid var(--border-light); /* Subtle separator */
+            text-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .document-section h2 i {
+            color: var(--primary-green); /* Green icon */
+            transform: translateY(-2px); /* Slight vertical adjustment */
+        }
+
+        .document-upload-area {
+            border: 3px dashed #ced4da; /* Gray dashed border */
+            border-radius: 20px; /* More rounded */
+            padding: 40px;
+            text-align: center;
+            cursor: not-allowed; /* Indicate non-interactive */
+            transition: all 0.3s ease;
+            background-color: #e9ecef; /* Light gray background */
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            box-shadow: none; /* Remove shadow for disabled look */
+            opacity: 0.7; /* Slightly faded out */
+            /* Removed margin-bottom here as session-id-display is now inside its own div */
+        }
+
+        /* Remove hover effects for the disabled upload area */
+        .document-upload-area:hover,
+        .document-upload-area.drag-over {
+            border-color: #ced4da; /* Keep border gray */
+            background-color: #e9ecef; /* Keep background gray */
+            transform: none; /* No lift effect */
+            box-shadow: none; /* No shadow change */
+        }
+
+        .document-upload-area i {
+            font-size: 4.5em; /* Larger icon */
+            color: var(--primary-blue);
+            margin-bottom: 20px;
+            transition: color 0.3s ease, transform 0.3s ease;
+        }
+        /* Remove icon hover effects */
+        .document-upload-area:hover i {
+            color: var(--primary-blue); /* Keep original color */
+            transform: none; /* No rotation or scale */
+        }
+
+        .document-upload-area p {
+            margin: 0;
+            font-size: 1.25em; /* Larger text */
+            font-weight: 600;
+            color: #6c757d; /* Muted text color */
+        }
+        .document-upload-area small {
+            display: none; /* Hide the "Supported files" text */
+        }
+
+        .upload-loading-indicator {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid var(--primary-green); /* Use primary green for spinner */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin-top: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .upload-status {
+            text-align: center;
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 12px; /* More rounded */
+            font-weight: 600;
+            font-size: 0.95em;
+            display: none;
+            box-shadow: var(--shadow-subtle);
+        }
+        .upload-status.success {
+            background-color: #e6ffe6; /* Lighter success green */
+            color: var(--success-color);
+            border: 1px solid #c8e6c9;
+        }
+        .upload-status.error {
+            background-color: #ffe6e6; /* Lighter error red */
+            color: var(--error-color);
+            border: 1px solid #e6c8c8;
+        }
+        .upload-status.loading {
+            color: var(--primary-blue);
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border-light);
+        }
+
+        /* --- Chat Section --- */
+        .chat-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 35px;
+            position: relative;
+            height: 100%; /* Crucial: Make chat-section take 100% of container height */
+        }
+
+        .chat-section h2 {
+            font-family: 'Montserrat', sans-serif; /* Different font for headings */
+            font-size: 2.5em; /* Larger, more impactful title */
+            margin-top: 0;
+            margin-bottom: 30px;
+            color: var(--primary-blue); 
+            font-weight: 600; /* Reduced boldness */
+            text-align: center;
+            text-shadow: 1px 1px 4px rgba(0,0,0,0.08); /* More prominent text shadow */
+        }
+        .chat-section h2 i {
+            color: var(--primary-blue);
+            transform: translateY(-2px); /* Slight vertical adjustment */
+        }
+        
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto; /* This handles scrolling within the chat window */
+            padding-right: 15px; /* Wider scrollbar padding */
+            margin-bottom: 25px; /* Added space for the chat input box */
+            display: flex;
+            flex-direction: column;
+            gap: 20px; /* More space between messages */
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 10px; /* Wider scrollbar */
+        }
+        .chat-messages::-webkit-scrollbar-track {
+            background: var(--bg-sidebar); /* Match sidebar background */
+            border-radius: 10px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--primary-blue);
+            border-radius: 10px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary-blue);
+        }
+
+        .chat-message {
+            max-width: 85%; /* Slightly wider messages */
+            padding: 18px 25px; /* More padding */
+            border-radius: 25px; /* More rounded */
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.1); /* More prominent shadow */
+            line-height: 1.5;
+            word-wrap: break-word;
+            opacity: 0; /* For fade-in animation */
+            animation: messageFadeIn 0.5s ease-out forwards; /* Message fade-in animation */
+            transform: translateY(10px); /* Initial offset for slide-up */
+        }
+
+        @keyframes messageFadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .chat-message.user {
+            background-color: var(--chat-bubble-user);
+            align-self: flex-end;
+            margin-left: auto;
+            border-bottom-right-radius: 8px; /* Subtle "tail" */
+        }
+
+        .chat-message.ai {
+            background-color: var(--chat-bubble-ai);
+            align-self: flex-start;
+            margin-right: auto;
+            border-bottom-left-radius: 8px; /* Subtle "tail" */
+        }
+
+        .chat-message p {
+            margin: 0;
+        }
+
+        .chat-message pre {
+            background-color: #eef5f7; /* Lighter code background */
+            padding: 15px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .chat-message code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background-color: #eef5f7;
+            padding: 3px 6px;
+            border-radius: 5px;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 20px;
+            padding-top: 20px; /* More padding */
+            border-top: 1px solid var(--border-light);
+            background-color: var(--bg-container); /* Ensure input area has clean background */
+        }
+
+        .chat-input input[type="text"] {
+            flex-grow: 1;
+            padding: 18px 25px;
+            border: 1px solid var(--border-light);
+            border-radius: 30px;
+            font-size: 1.05em;
+            outline: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08); /* Input shadow */
+        }
+
+        .chat-input input[type="text"]:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 5px rgba(52, 152, 219, 0.3); /* Stronger, thematic focus ring */
+        }
+
+        .chat-input button {
+            background: linear-gradient(45deg, var(--primary-blue) 0%, #0056b3 100%); /* Gradient button */
+            color: white;
+            border: none;
+            border-radius: 30px;
+            padding: 18px 30px;
+            cursor: pointer;
+            font-size: 1.05em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); /* Button shadow */
+        }
+
+        .chat-input button:hover {
+            background: linear-gradient(45deg, #0056b3 0%, var(--primary-blue) 100%); /* Reverse gradient on hover */
+            transform: translateY(-4px); /* More prominent lift effect */
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25); /* Deeper shadow on hover */
+        }
+        .chat-input button:active {
+            transform: translateY(0);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .chat-input button:disabled {
+            background: var(--border-light);
+            color: var(--text-light);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* Loading spinner for chat */
+        .chat-loading-indicator {
+            position: absolute;
+            bottom: 125px; /* Adjust based on input height */
+            left: 50%;
+            transform: translateX(-50%);
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-green); /* Use primary green for chat spinner */
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            animation: spin 1s linear infinite;
+            display: none;
+            z-index: 10;
+        }
+        
+        /* Citations styling */
+        .citations-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-light);
+            font-size: 0.85em;
+            color: var(--text-light);
+        }
+
+        .citations-section h4 {
+            font-family: 'Montserrat', sans-serif;
+            margin-top: 0;
+            margin-bottom: 12px;
+            color: var(--text-dark);
+            font-weight: 600;
+        }
+
+        .citations-section ol {
+            padding-left: 25px;
+            margin: 0;
+        }
+
+        .citations-section li {
+            margin-bottom: 6px;
+        }
+
+        /* Session ID Display - Now within document-section and relative to its container */
+        .session-id-display {
+            position: relative; /* Changed to relative so it flows with the document-section content */
+            margin-top: 20px; /* Added margin-top to separate it from upload status */
+            margin-left: auto; /* Center horizontally if space allows */
+            margin-right: auto; /* Center horizontally if space allows */
+            font-size: 0.7em; /* Smaller font size */
+            color: var(--text-light);
+            /* Removed background, padding, border-radius, box-shadow for a lighter look */
+            /* background-color: rgba(255, 255, 255, 0.85); */
+            padding: 0; /* No padding for now */
+            /* border-radius: 12px; */
+            /* box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1); */
+            z-index: 1000;
+            /* backdrop-filter: blur(3px); */
+            white-space: nowrap; /* Prevent breaking into multiple lines */
+            width: fit-content; /* Ensure it only takes up necessary width */
+            text-align: center; /* Center text within its own box */
+        }
+
+
+        /* --- Responsive Adjustments --- */
+        @media (max-width: 992px) {
+            .container {
+                flex-direction: column;
+                padding: 15px;
+                min-height: unset;
+                max-width: 95%;
+                height: unset; /* Allow height to auto adjust on smaller screens */
+            }
+
+            .document-section {
+                flex: none;
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border-light);
+                padding: 25px;
+                order: 2; /* Upload section below chat on small screens */
+                gap: 20px;
+                height: unset; /* Allow height to auto adjust on smaller screens */
+            }
+            
+            .chat-section {
+                padding: 25px;
+                order: 1; /* Chat section above upload on small screens */
+                min-height: 50vh;
+                height: unset; /* Allow height to auto adjust on smaller screens */
+            }
+
+            .document-section h2, .chat-section h2 {
+                font-size: 1.6em;
+            }
+
+            .chat-input {
+                flex-direction: column;
+                gap: 12px;
+            }
+            .chat-input input[type="text"], .chat-input button {
+                width: 100%;
+                padding: 14px 20px;
+            }
+            .chat-input button {
+                justify-content: center;
+            }
+
+            .chat-loading-indicator {
+                bottom: 170px;
+            }
+            /* Session ID display for mobile: place it within the content flow */
+            .session-id-display {
+                position: static; /* Remove fixed/absolute positioning */
+                margin-top: 20px;
+                margin-bottom: 0; /* Remove extra margin */
+                text-align: center;
+                width: fit-content;
+                align-self: center; /* Center in flex column */
+            }
+        }
+
+        @media (max-width: 576px) {
+            body {
+                padding: 10px;
+            }
+            .container {
+                border-radius: 15px;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            }
+            .document-section, .chat-section {
+                padding: 15px;
+                gap: 15px;
+            }
+            .document-section h2, .chat-section h2 {
+                font-size: 1.3em;
+            }
+            .document-upload-area {
+                padding: 25px;
+            }
+            .document-upload-area i {
+                font-size: 3.5em;
+            }
+            .document-upload-area p {
+                font-size: 1em;
+            }
+            .chat-messages {
+                gap: 10px;
+            }
+            .chat-message {
+                padding: 12px 15px;
+                border-radius: 20px;
+            }
+            .chat-input input[type="text"], .chat-input button {
+                padding: 10px 15px;
+                font-size: 0.95em;
+            }
+            .session-id-display {
+                font-size: 0.7em;
+                padding: 6px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Chat Section -->
+        <div class="chat-section">
+            <h2><i class="fas fa-robot"></i> Your Community Assistant</h2>
+            <!-- Policy Clarifier Section removed as requested -->
+
+            <div id="chatContainer" class="chat-messages">
+                <!-- Chat messages will be appended here -->
+                <div class="chat-message ai">
+                    <p>Hello! I'm your Community Assistant. How can I help you today?</p>
+                </div>
+            </div>
+            <div class="chat-loading-indicator" id="chatLoadingIndicator"></div>
+            <div class="chat-input">
+                <input type="text" id="queryInput" placeholder="Ask a question about your community..." autofocus>
+                <button id="sendButton"><i class="fas fa-paper-plane"></i> Send</button>
+            </div>
+        </div>
+
+        <!-- Document Upload Section (Sidebar) -->
+        <div class="document-section">
+            <h2><i class="fas fa-upload"></i> Upload Documents</h2>
+            <input type="file" id="documentInput" multiple accept=".pdf, .txt" style="display: none;">
+            <div id="documentUploadArea" class="document-upload-area">
+                <i class="fas fa-lock"></i> <!-- Changed icon to a lock -->
+                <p>Only Admins can upload docs at this time.</p>
+                <small>Supported: PDF, TXT (for digital, text-based content)</small>
+            </div>
+            <div class="upload-loading-indicator" id="uploadLoadingIndicator"></div>
+            <div id="uploadStatusDiv" class="upload-status"></div>
+            
+            <!-- Session ID Display - Moved inside document-section -->
+            <div id="session-id-display" class="session-id-display">
+                Session ID: <span id="currentSessionIdDisplay">Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const queryInput = document.getElementById('queryInput');
+        const sendButton = document.getElementById('sendButton');
+        const chatLoadingIndicator = document.getElementById('chatLoadingIndicator');
+
+        const documentInput = document.getElementById('documentInput');
+        const documentUploadArea = document.getElementById('documentUploadArea');
+        const uploadLoadingIndicator = document.getElementById('uploadLoadingIndicator');
+        const uploadStatusDiv = document.getElementById('uploadStatusDiv');
+        
+        // Removed policy related elements as requested
+        // const policyInput = document.getElementById('policyInput');
+        // const clarifyPolicyButton = document.getElementById('clarifyPolicyButton');
+        // const clarifyLoadingIndicator = document.getElementById('clarifyLoadingIndicator');
+
+        // Reference to the span inside the session ID display div
+        const currentSessionIdDisplay = document.getElementById('currentSessionIdDisplay');
+
+        // Retrieve or generate session ID
+        let currentSessionId = localStorage.getItem('aiAssistantSessionId') || uuidv4();
+        localStorage.setItem('aiAssistantSessionId', currentSessionId);
+        // Display the session ID immediately
+        currentSessionIdDisplay.textContent = currentSessionId;
+
+        function uuidv4() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // --- MODIFIED addMessage function to parse citations from message string ---
+        function addMessage(sender, rawMessage) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('chat-message', sender);
+            
+            let displayMessage = rawMessage;
+            let citations = [];
+            
+            // Regex to find "Citations:" or "References:" followed by numbered list at the end of the string
+            // This is a simplified pattern based on the log structure; adjust if backend format varies
+            const citationPattern = /(?:Citations|References):\n?\s*(\d+\)\s*.*(?:(?:\n\s*\d+\)\s*.*)*))$/i;
+            const match = rawMessage.match(citationPattern);
+
+            if (match) {
+                displayMessage = rawMessage.substring(0, match.index).trim();
+                const citationsRaw = match[1].trim();
+                
+                // Split citations by numbered list item (e.g., "1) ", "2) ")
+                const citationLines = citationsRaw.split(/\n\s*\d+\)\s*/).filter(Boolean); // Filter out empty strings
+                citations = citationLines.map(line => line.replace(/^\d+\)\s*/, '').trim()); // Clean up numbers
+            }
+
+            messageElement.innerHTML = marked.parse(displayMessage); // Render main message Markdown
+
+            if (citations.length > 0) {
+                const citationsSection = document.createElement('div');
+                citationsSection.classList.add('citations-section');
+                const citationsTitle = document.createElement('h4');
+                citationsTitle.innerText = 'Citations:';
+                const citationsList = document.createElement('ol');
+                citations.forEach(citation => {
+                    const listItem = document.createElement('li');
+                    listItem.textContent = citation;
+                    citationsList.appendChild(listItem);
+                });
+                citationsSection.appendChild(citationsTitle);
+                citationsSection.appendChild(citationsList);
+                messageElement.appendChild(citationsSection);
+            }
+
+            chatContainer.appendChild(messageElement);
+            chatContainer.scrollTop = chatContainer.scrollHeight; // Scroll to bottom
+        }
+
+        async function sendMessage() {
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            addMessage('user', query);
+            queryInput.value = ''; // Clear input
+            sendButton.disabled = true;
+            queryInput.disabled = true;
+            chatLoadingIndicator.style.display = 'block'; // Show loading spinner
+
+            try {
+                const response = await fetch('/api/bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query, session_id: currentSessionId }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log("API Response:", data); // Log the full response
+
+                let aiMessage = "Sorry, I couldn't find an answer to that question."; // Default fallback
+
+                // Use data.response as per backend (app.py)
+                if (data.status === 'success' && data.response !== undefined) { 
+                    aiMessage = data.response; // Backend sends the full string in 'response' field
+                } else if (data.status === 'error' && data.message) { // Use data.message for error if available
+                    aiMessage = `Error: ${data.message}`;
+                } else if (data.message) { // Fallback for direct message from API
+                    aiMessage = data.message;
+                }
+
+                addMessage('ai', aiMessage); // Pass the full string to addMessage, which will parse citations
+                                            // Do NOT pass a separate citations array here, addMessage handles it.
+
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addMessage('ai', 'Error: Failed to connect to the assistant. Please try again later.');
+            } finally {
+                sendButton.disabled = false;
+                queryInput.disabled = false;
+                chatLoadingIndicator.style.display = 'none'; // Hide loading spinner
+                queryInput.focus();
+            }
+        }
+
+        async function uploadDocument(file) {
+            if (!file) return;
+
+            // Optional: Validate file type here if needed beyond accept attribute
+            const allowedTypes = ['application/pdf', 'text/plain'];
+            if (!allowedTypes.includes(file.type)) {
+                showUploadStatus('error', `Unsupported file type: ${file.type}. Please upload PDF or TXT files.`);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('session_id', currentSessionId);
+
+            setUploadState('loading', `Uploading "${file.name}"...`);
+
+            try {
+                const response = await fetch('/api/documents/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    setUploadState('success', `Successfully uploaded "${file.name}".`);
+                } else {
+                    // Use data.message for error output from upload endpoint
+                    const errorMessage = data.message || `Failed to process document: ${file.name}`;
+                    setUploadState('error', `Failed to upload "${file.name}": ${errorMessage}`);
+                }
+            } catch (error) {
+                console.error('Error uploading document:', error);
+                setUploadState('error', `Failed to upload "${file.name}": ${error.message}`);
+            } finally {
+                // The setUploadState handles hiding the spinner
+            }
+        }
+
+        function setUploadState(state, message = '') {
+            if (state === 'loading') {
+                documentUploadArea.classList.add('loading');
+                uploadLoadingIndicator.style.display = 'block';
+                uploadStatusDiv.style.display = 'block';
+                uploadStatusDiv.className = 'upload-status loading';
+                uploadStatusDiv.innerText = message;
+            } else {
+                documentUploadArea.classList.remove('loading');
+                uploadLoadingIndicator.style.display = 'none';
+                uploadStatusDiv.style.display = 'block';
+                if (state === 'success') {
+                    uploadStatusDiv.className = 'upload-status success';
+                } else if (state === 'error') {
+                    uploadStatusDiv.className = 'upload-status error';
+                }
+                uploadStatusDiv.innerText = message;
+                // Auto-hide success/error message after a few seconds
+                setTimeout(() => {
+                    uploadStatusDiv.style.display = 'none';
+                    uploadStatusDiv.innerText = '';
+                }, 5000); // Hide after 5 seconds
+            }
+        }
+
+        // --- Removed Functionality: Clarify Policy using Gemini API ---
+        /*
+        async function clarifyPolicy() {
+            const policyText = policyInput.value.trim();
+            if (!policyText) {
+                addMessage('ai', 'Please enter some policy text to clarify.');
+                return;
+            }
+
+            policyInput.disabled = true;
+            clarifyPolicyButton.disabled = true;
+            clarifyLoadingIndicator.style.display = 'block';
+
+            addMessage('user', `Please clarify this policy: "${policyText.substring(0, 100)}..."`);
+
+            try {
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: `Explain the following community policy text in simple, easy-to-understand terms for a resident:\n\n${policyText}` }] });
+
+                const payload = { 
+                    contents: chatHistory,
+                    generationConfig: {
+                        temperature: 0.2,
+                    }
+                };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                console.log("Gemini API Policy Clarification Response:", result);
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const llmResponseText = result.candidates[0].content.parts[0].text;
+                    addMessage('ai', `✨ Policy Clarification:\n\n${llmResponseText}`);
+                    policyInput.value = '';
+                } else {
+                    addMessage('ai', 'Sorry, I could not clarify the policy. Please try rephrasing or provide more context.');
+                }
+            } catch (error) {
+                console.error('Error clarifying policy with Gemini API:', error);
+                addMessage('ai', 'Error: Failed to clarify policy using AI. Please try again later.');
+            } finally {
+                policyInput.disabled = false;
+                clarifyPolicyButton.disabled = false;
+                clarifyLoadingIndicator.style.display = 'none';
+            }
+        }
+        */
+
+
+        // Event Listeners
+        sendButton.addEventListener('click', sendMessage);
+        queryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Removed event listener for the clarify policy button
+        // clarifyPolicyButton.addEventListener('click', clarifyPolicy);
+
+        // Drag and drop functionality
+        // Commenting out upload functionality as per the request to disable it
+        /*
+        documentUploadArea.addEventListener('click', () => documentInput.click());
+
+        documentUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            documentUploadArea.classList.add('drag-over');
+        });
+
+        documentUploadArea.addEventListener('dragleave', () => {
+            documentUploadArea.classList.remove('drag-over');
+        });
+
+        documentUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            documentUploadArea.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                Array.from(e.dataTransfer.files).forEach(uploadDocument);
+            }
+        });
+
+        documentInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                Array.from(e.target.files).forEach(uploadDocument);
+            }
+        });
+        */
+    </script>
+</body>
+</html>
