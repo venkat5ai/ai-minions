@@ -240,17 +240,17 @@ def bot_chat():
         else:
             logger.info(f"Using existing session ID: {session_id} for query: '{user_message}'.")
 
-        # Initialize or retrieve session state (memory and adk_session_id)
+        # Initialize or retrieve session state (memory and adk_session_id for RAG, openapi_adk_session_id for OpenAPI)
         if session_id not in agent_sessions:
             agent_sessions[session_id] = {
                 "memory": ConversationBufferMemory(memory_key="chat_history", return_messages=True),
-                "adk_session_id": None
+                "rag_adk_session_id": None, # Use specific key for RAG ADK session ID
+                "openapi_adk_session_id": None # Use specific key for OpenAPI ADK session ID
             }
             logger.info(f"Initialized new state for session: {session_id}")
 
         # Get a local reference to the memory for this request
         current_memory = agent_sessions[session_id]["memory"]
-
 
         # Determine which agent to use
         decision = 'UNKNOWN' # Default decision
@@ -267,22 +267,22 @@ def bot_chat():
         agent_response = ""
         if decision == 'RAG' and rag_agent_client:
             logger.info(f"Routing query to RAG Agent: '{user_message}'")
-            adk_session_id = agent_sessions[session_id].get("adk_session_id")
+            rag_adk_session_id = agent_sessions[session_id].get("rag_adk_session_id")
 
             # Create ADK session if it doesn't exist for RAG agent, using adk_session_service
-            if not adk_session_id and adk_session_service:
+            if not rag_adk_session_id and adk_session_service:
                 try:
-                    logger.info(f"Creating new ADK session for Flask session {session_id}, user {user_id}")
-                    adk_session = asyncio.run(adk_session_service.create_session(
-                        app_name=os.environ.get("AGENT_ENGINE_ID"), # AGENT_ENGINE_ID is the resource name
+                    logger.info(f"Creating new ADK session for RAG agent, Flask session {session_id}, user {user_id}")
+                    rag_adk_session = asyncio.run(adk_session_service.create_session(
+                        app_name=os.environ.get("AGENT_ENGINE_ID"), # AGENT_ENGINE_ID is the resource name for RAG
                         user_id=user_id
                     ))
-                    adk_session_id = adk_session.id
+                    rag_adk_session_id = rag_adk_session.id
                     # Store the ADK session ID in our in-memory session store
-                    agent_sessions[session_id]["adk_session_id"] = adk_session_id
-                    logger.info(f"Created ADK session {adk_session_id} for Flask session {session_id}")
+                    agent_sessions[session_id]["rag_adk_session_id"] = rag_adk_session_id
+                    logger.info(f"Created ADK session {rag_adk_session_id} for RAG agent.")
                 except Exception as e:
-                    logger.error(f"Failed to create ADK session for {user_id}/{session_id}: {e}", exc_info=True)
+                    logger.error(f"Failed to create ADK session for RAG agent {user_id}/{session_id}: {e}", exc_info=True)
                     agent_response = "I couldn't start a session for RAG. Please try again."
                     decision = 'ERROR' # Mark as error to prevent further processing
 
@@ -291,36 +291,83 @@ def bot_chat():
                     rag_actual_content = ""
                     response_stream = rag_agent_client.stream_query(
                         user_id=user_id,
-                        session_id=adk_session_id,
+                        session_id=rag_adk_session_id, # Use the RAG-specific session ID
                         message=user_message,
                     )
                     for event in response_stream:
-                        if "content" in event and "parts" in event["content"]:
-                            for part in event["content"]["parts"]:
-                                if "text" in part:
-                                    rag_actual_content += part["text"]
-                        if "tool_code" in event: logger.debug(f"RAG tool_code: {event.get('tool_code')}")
-                        if "state_delta" in event: logger.debug(f"RAG state_delta: {event.get('state_delta')}")
-                        if "actions" in event: logger.debug(f"RAG actions: {event.get('actions')}")
+                        # CRITICAL FIX: Ensure 'event' is a dictionary before accessing keys
+                        if isinstance(event, dict):
+                            if "content" in event and "parts" in event["content"]:
+                                for part in event["content"]["parts"]:
+                                    if "text" in part:
+                                        rag_actual_content += part["text"]
+                            if "tool_code" in event: logger.debug(f"RAG tool_code: {event.get('tool_code')}")
+                            if "state_delta" in event: logger.debug(f"RAG state_delta: {event.get('state_delta')}")
+                            if "actions" in event: logger.debug(f"RAG actions: {event.get('actions')}")
+                        else:
+                            logger.warning(f"Received unexpected event type from RAG stream: {type(event)}. Content: {event}")
+                            # Attempt to append if it's a string, or ignore
+                            if isinstance(event, str):
+                                rag_actual_content += event # Append problematic string to see if it helps debug
+                                
 
                     agent_response = rag_actual_content.strip()
                     if not agent_response:
                         agent_response = "I couldn't find a direct answer in the documents. Could you rephrase your question?"
                         logger.warning(f"RAG Agent returned empty response for '{user_message}'.")
                 except Exception as e:
-                    logger.error(f"Error querying RAG Agent for '{user_message}' (ADK Session: {adk_session_id}): {e}", exc_info=True)
+                    logger.error(f"Error querying RAG Agent for '{user_message}' (ADK Session: {rag_adk_session_id}): {e}", exc_info=True)
                     agent_response = "I encountered an error while retrieving information from the documents."
 
         elif decision == 'OPENAPI' and openapi_agent_client:
             logger.info(f"Routing query to OpenAPI Agent: '{user_message}'")
-            try:
-                agent_response = openapi_agent_client.predict(user_message)
-                if not agent_response:
-                    agent_response = "The OpenAPI agent did not provide a specific response. Please try again."
-                    logger.warning(f"OpenAPI Agent returned empty response for '{user_message}'.")
-            except Exception as e:
-                logger.error(f"Error querying OpenAPI Agent for '{user_message}': {e}", exc_info=True)
-                agent_response = "I encountered an error while interacting with the OpenAPI service."
+            openapi_adk_session_id = agent_sessions[session_id].get("openapi_adk_session_id")
+            if not openapi_adk_session_id and adk_session_service:
+                 try:
+                    logger.info(f"Creating new ADK session for OpenAPI agent, Flask session {session_id}, user {user_id}")
+                    openapi_adk_session = asyncio.run(adk_session_service.create_session(
+                        app_name=os.environ.get("OPENAPI_AGENT_ENGINE_ID"), # Use OpenAPI Agent Engine ID
+                        user_id=user_id
+                    ))
+                    openapi_adk_session_id = openapi_adk_session.id
+                    agent_sessions[session_id]["openapi_adk_session_id"] = openapi_adk_session_id
+                    logger.info(f"Created ADK session {openapi_adk_session_id} for OpenAPI agent.")
+                 except Exception as e:
+                    logger.error(f"Failed to create ADK session for OpenAPI agent {user_id}/{session_id}: {e}", exc_info=True)
+                    agent_response = "I couldn't start a session for the OpenAPI service. Please try again."
+                    decision = 'ERROR' # Mark as error to prevent further processing
+
+            if decision != 'ERROR':
+                try:
+                    openapi_actual_content = ""
+                    response_stream = openapi_agent_client.stream_query(
+                        user_id=user_id,
+                        session_id=openapi_adk_session_id, # Use the OpenAPI-specific session ID
+                        message=user_message,
+                    )
+                    for event in response_stream:
+                        # CRITICAL FIX: Ensure 'event' is a dictionary before accessing keys
+                        if isinstance(event, dict):
+                            if "content" in event and "parts" in event["content"]:
+                                for part in event["content"]["parts"]:
+                                    if "text" in part:
+                                        openapi_actual_content += part["text"]
+                            if "tool_code" in event: logger.debug(f"OpenAPI tool_code: {event.get('tool_code')}")
+                            if "state_delta" in event: logger.debug(f"OpenAPI state_delta: {event.get('state_delta')}")
+                            if "actions" in event: logger.debug(f"OpenAPI actions: {event.get('actions')}")
+                        else:
+                            logger.warning(f"Received unexpected event type from OpenAPI stream: {type(event)}. Content: {event}")
+                            # Attempt to append if it's a string, or ignore
+                            if isinstance(event, str):
+                                openapi_actual_content += event
+
+                    agent_response = openapi_actual_content.strip()
+                    if not agent_response:
+                        agent_response = "The OpenAPI agent did not provide a specific response. Please try again."
+                        logger.warning(f"OpenAPI Agent returned empty response for '{user_message}'.")
+                except Exception as e:
+                    logger.error(f"Error querying OpenAPI Agent for '{user_message}' (ADK Session: {openapi_adk_session_id}): {e}", exc_info=True)
+                    agent_response = "I encountered an error while interacting with the OpenAPI service."
         else: # Covers 'UNKNOWN' decision or if required clients are not initialized
             logger.warning(f"Query '{user_message}' not routed to RAG or OpenAPI. Router decision: '{decision}'. Falling back to generic response.")
             agent_response = "I'm currently equipped to answer questions about uploaded documents (RAG) or manage data via the JSONPlaceholder API (users, posts, comments). Please ask me about one of those topics, or provide more context."
