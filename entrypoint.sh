@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# This script is the ENTRYPOINT for the Docker container. 
+# This script is the ENTRYPOINT for the Docker container.
 # It executes different Python applications based on the first argument.
 
 # Ensure unbuffered output for Python, which is good for Docker logs.
