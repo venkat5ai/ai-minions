@@ -1,14 +1,18 @@
 # agent.py
+import os
+
 from google.adk.agents import Agent
 from google.adk.tools.agent_tool import AgentTool
 
 # Import the API toolsets
 from .tools import jsonplaceholder_apis
 
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gemini-2.0-flash-001")
+
 # --- User Management Sub-agent ---
 user_management_agent = Agent(
-    name="user_management_agent",
-    model="gemini-1.5-flash",
+    name="user_management_agent",    
+    model=LLM_MODEL_NAME,
     description="Specialized agent for managing JSONPlaceholder users.",
     instruction="""You are a helpful assistant specifically for managing users on JSONPlaceholder.
     You can list all users, get a user by their ID, create new users, update existing users, and delete users.
@@ -21,7 +25,7 @@ user_management_agent = Agent(
 # --- Post Management Sub-agent ---
 post_management_agent = Agent(
     name="post_management_agent",
-    model="gemini-1.5-flash",
+    model=LLM_MODEL_NAME,
     description="Specialized agent for managing JSONPlaceholder posts and comments related to posts.",
     instruction="""You are a helpful assistant specifically for managing posts and their comments on JSONPlaceholder.
     You can list all posts, get a post by its ID, create new posts, and list comments for a specific post.
@@ -34,7 +38,7 @@ post_management_agent = Agent(
 # --- Comment Management Sub-agent (for top-level comment operations) ---
 comment_management_agent = Agent(
     name="comment_management_agent",
-    model="gemini-1.5-flash",
+    model=LLM_MODEL_NAME,
     description="Specialized agent for managing JSONPlaceholder comments directly.",
     instruction="""You are a helpful assistant specifically for managing comments on JSONPlaceholder.
     You can list all comments, create new comments, and get a comment by its ID.
@@ -59,5 +63,5 @@ root_agent = Agent(
     sub_agents=[user_management_agent, post_management_agent, comment_management_agent],
     # The root agent uses AgentTool to call the sub-agents.
     tools=[jsonplaceholder_apis],
-    model="gemini-1.5-pro", # A more capable model for the orchestrator
+    model=LLM_MODEL_NAME, # A more capable model for the orchestrator
 )

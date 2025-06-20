@@ -24,12 +24,13 @@ from openapi.agent import root_agent # Changed import
 
 def main(argv: list[str]) -> None:
 
-    load_dotenv()
+    ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    # Load environment variables from the specified .env file
+    load_dotenv(dotenv_path=ENV_FILE_PATH)
 
     PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
     LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
     STAGING_BUCKET = os.environ["STAGING_BUCKET"]
-    ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
     if not PROJECT:
         print("Missing required environment variable: GOOGLE_CLOUD_PROJECT")

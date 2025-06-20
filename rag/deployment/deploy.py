@@ -22,9 +22,9 @@ import os
 from dotenv import load_dotenv
 from dotenv import set_key
 
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-load_dotenv()
+ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+# Load environment variables from the specified .env file
+load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -33,7 +33,6 @@ GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION")
 STAGING_BUCKET = os.getenv("STAGING_BUCKET")
 # Define the path to the .env file relative to this script
-ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 vertexai.init(
     project=GOOGLE_CLOUD_PROJECT,
