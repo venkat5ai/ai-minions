@@ -28,7 +28,7 @@ def main(argv: list[str]) -> None:
 
     PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
     LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
-    STAGING_BUCKET = os.environ["GOOGLE_CLOUD_STORAGE_BUCKET"]
+    STAGING_BUCKET = os.environ["STAGING_BUCKET"]
     ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
     if not PROJECT:
@@ -38,7 +38,7 @@ def main(argv: list[str]) -> None:
         print("Missing required environment variable: GOOGLE_CLOUD_LOCATION")
         return
     elif not STAGING_BUCKET:
-        print("Missing required environment variable: GOOGLE_CLOUD_STORAGE_BUCKET")
+        print("Missing required environment variable: STAGING_BUCKET")
         return
 
     print(f"PROJECT: {PROJECT}")
@@ -48,7 +48,7 @@ def main(argv: list[str]) -> None:
     vertexai.init(
         project=PROJECT,
         location=LOCATION,
-        staging_bucket=f"gs://{STAGING_BUCKET}",
+        staging_bucket=STAGING_BUCKET,
     )
 
     app = AdkApp(agent=root_agent, enable_tracing=False)

@@ -1,10 +1,9 @@
 # agent.py
 from google.adk.agents import Agent
-# from google.adk.tools import AgentTool
-from vertexai.preview.reasoning_engines.tool import AgentTool # Corrected import for AgentTool
+from google.adk.tools.agent_tool import AgentTool
 
 # Import the API toolsets
-from .tools import users_api, posts_api, comments_api
+from .tools import jsonplaceholder_apis
 
 # --- User Management Sub-agent ---
 user_management_agent = Agent(
@@ -16,7 +15,7 @@ user_management_agent = Agent(
     Do not greet the user. Directly assist with user-related queries.
     If the user asks for actions not related to users, inform them that you can only help with user management and transfer them back to the main agent.
     Always provide clear and concise responses based on the tool outputs.""",
-    tools=[*users_api.get_tools()] # Use the get_tools() from the specific toolset
+    tools=[jsonplaceholder_apis] # Use the get_tools() from the specific toolset
 )
 
 # --- Post Management Sub-agent ---
@@ -29,7 +28,7 @@ post_management_agent = Agent(
     Do not greet the user. Directly assist with post-related queries.
     If the user asks for actions not related to posts or getting comments for posts, inform them that you can only help with post management and transfer them back to the main agent.
     Always provide clear and concise responses based on the tool outputs.""",
-    tools=[*posts_api.get_tools()] # Use the get_tools() from the specific toolset
+    tools=[jsonplaceholder_apis] # Use the get_tools() from the specific toolset
 )
 
 # --- Comment Management Sub-agent (for top-level comment operations) ---
@@ -42,7 +41,7 @@ comment_management_agent = Agent(
     Do not greet the user. Directly assist with comment-related queries.
     If the user asks for actions not related to comments, inform them that you can only help with comment management and transfer them back to the main agent.
     Always provide clear and concise responses based on the tool outputs.""",
-    tools=[*comments_api.get_tools()] # Use the get_tools() from the specific toolset
+    tools=[jsonplaceholder_apis] # Use the get_tools() from the specific toolset
 )
 
 # --- The main orchestrator agent ---
@@ -59,22 +58,6 @@ root_agent = Agent(
     - If the user doesn't need anything else, politely thank them for using the JSONPlaceholder assistant.""",
     sub_agents=[user_management_agent, post_management_agent, comment_management_agent],
     # The root agent uses AgentTool to call the sub-agents.
-    tools=[
-        AgentTool(
-            name="manageUsers",
-            agent=user_management_agent,
-            description="Tool to manage user-related operations on JSONPlaceholder (list, get by ID, create, update, delete users)."
-        ),
-        AgentTool(
-            name="managePosts",
-            agent=post_management_agent,
-            description="Tool to manage post-related operations on JSONPlaceholder (list, get by ID, create posts, list comments for a specific post)."
-        ),
-        AgentTool(
-            name="manageComments",
-            agent=comment_management_agent,
-            description="Tool to manage top-level comment-related operations on JSONPlaceholder (list, get by ID, create comments)."
-        ),
-    ],
+    tools=[jsonplaceholder_apis],
     model="gemini-1.5-pro", # A more capable model for the orchestrator
 )
