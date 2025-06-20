@@ -28,7 +28,7 @@ from langchain_core.prompts import (
     MessagesPlaceholder,
     PromptTemplate,
     HumanMessagePromptTemplate,
-    SystemMessageTemplate # Corrected from SystemMessagePromptTemplate to match common usage
+    SystemMessagePromptTemplate # Corrected from SystemMessagePromptTemplate to match common usage
 )
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage
@@ -180,7 +180,7 @@ def initialize_agents():
         )
 
         router_prompt = ChatPromptTemplate.from_messages([
-            SystemMessageTemplate.from_template(
+            SystemMessagePromptTemplate.from_template(
                 """You are an intelligent router that determines which specialized agent should handle a user's query.
                 Your output must be one of the following keywords only. Do not add any other text or punctuation, no explanations.
 
@@ -207,121 +207,77 @@ def index():
 
 @app.route("/api/bot", methods=["POST"])
 def bot_chat():
-    """Handles chat messages, routing them to the appropriate agent."""
-    user_message = request.json.get("message")
-    if not user_message:
-        return jsonify({"response": "No message provided."}), 400
-
-    session_id = request.headers.get('X-Session-ID') or request.json.get('session_id')
-    user_id = request.json.get('user_id', 'default_user') # Default user_id if not provided
-
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        logger.info(f"Generated new session ID: {session_id} for query: '{user_message}'.")
-    else:
-        logger.info(f"Using existing session ID: {session_id} for query: '{user_message}'.")
-
-    # Initialize session memory if not already present
-    if session_id not in agent_sessions:
-        agent_sessions[session_id] = {
-            "memory": ConversationBufferMemory(memory_key="chat_history", return_messages=True),
-            "adk_session_id": None # Initialize ADK session ID as None for RAG
-        }
-        logger.info(f"Initialized new memory for session: {session_id}")
-
-    current_memory = agent_sessions[session_id]["memory"]
+    """
+    Handles incoming chat messages from the user, processes them using the
+    appropriate model (ADK Agent Engine or LangChain orchestrator), and
+    returns the bot's response.
+    """
+    global adk_session_service, rag_agent_client, lc_orchestrator_chain
 
     try:
-        # Determine which agent to use
-        decision = 'UNKNOWN' # Default decision
-        if router_llm and router_prompt:
+        data = request.json
+        message = data.get("message")
+        session_id = data.get("session_id")
+        user_history = data.get("history", [])
+
+        if not message:
+            return jsonify({"error": "No message provided"}), 400
+
+        logger.info(f"Received message: {message} for session_id: {session_id}")
+
+        # Determine the model to use based on configuration
+        if MODEL_MODE == "adk_agent_engine":
+            if not adk_session_service:
+                logger.error("ADK Session Service is not initialized.")
+                return jsonify({"error": "ADK Agent Engine not ready."}), 500
+
             try:
-                routing_chain = router_prompt | router_llm | StrOutputParser()
-                decision_raw = routing_chain.invoke({"query": user_message})
-                decision = decision_raw.strip().upper()
-                logger.info(f"Router decision for '{user_message}': '{decision_raw.strip()}' -> '{decision}'")
+                # ADK Agent Engine processing
+                adk_session = adk_session_service.get_session(session_id)
+                new_message = {"text": message}
+                response = adk_session.send_message(new_message)
+                bot_response = response.text
+                logger.info(f"ADK Agent Engine response: {bot_response}")
+
             except Exception as e:
-                logger.error(f"Error during routing decision for '{user_message}': {e}", exc_info=True)
-                decision = 'UNKNOWN' # Fallback if router fails
+                logger.exception(f"Error during ADK Agent Engine processing for session {session_id}:")
+                bot_response = "I apologize, but I encountered an error while processing your request using the agent. Please try again later."
 
-        agent_response = ""
-        if decision == 'RAG' and rag_agent_client:
-            logger.info(f"Routing query to RAG Agent: '{user_message}'")
-            adk_session_id = agent_sessions[session_id].get("adk_session_id")
+        elif MODEL_MODE == "langchain_orchestrator":
+            if not lc_orchestrator_chain:
+                logger.error("LangChain Orchestrator chain is not initialized.")
+                return jsonify({"error": "LangChain Orchestrator not ready."}), 500
 
-            # Create ADK session if it doesn't exist for RAG agent
-            if not adk_session_id and adk_session_service:
-                try:
-                    logger.info(f"Creating new ADK session for Flask session {session_id}, user {user_id}")
-                    adk_session = asyncio.run(adk_session_service.create_session(
-                        app_name=os.environ.get("AGENT_ENGINE_ID"), # AGENT_ENGINE_ID is the resource name
-                        user_id=user_id
-                    ))
-                    adk_session_id = adk_session.id
-                    agent_sessions[session_id]["adk_session_id"] = adk_session_id
-                    logger.info(f"Created ADK session {adk_session_id} for Flask session {session_id}")
-                except Exception as e:
-                    logger.error(f"Failed to create ADK session for {user_id}/{session_id}: {e}", exc_info=True)
-                    agent_response = "Failed to initialize RAG session. Please try again."
-                    decision = 'ERROR' # Mark as error to prevent further processing
-
-            if decision != 'ERROR': # Only proceed if session creation was successful
-                try:
-                    rag_actual_content = ""
-                    # Stream query to RAG agent for potentially long responses
-                    response_stream = rag_agent_client.stream_query(
-                        user_id=user_id,
-                        session_id=adk_session_id,
-                        message=user_message,
-                    )
-                    for event in response_stream:
-                        if "content" in event and "parts" in event["content"]:
-                            for part in event["content"]["parts"]:
-                                if "text" in part:
-                                    rag_actual_content += part["text"]
-                        # Log other event types for debugging if needed
-                        if "tool_code" in event: logger.debug(f"RAG tool_code: {event.get('tool_code')}")
-                        if "state_delta" in event: logger.debug(f"RAG state_delta: {event.get('state_delta')}")
-                        if "actions" in event: logger.debug(f"RAG actions: {event.get('actions')}")
-
-                    agent_response = rag_actual_content.strip()
-                    if not agent_response:
-                        agent_response = "I couldn't find a direct answer in the documents. Could you rephrase your question?"
-                        logger.warning(f"RAG Agent returned empty response for '{user_message}'.")
-                except Exception as e:
-                    logger.error(f"Error querying RAG Agent for '{user_message}': {e}", exc_info=True)
-                    agent_response = "I encountered an error while retrieving information from the documents."
-
-        elif decision == 'OPENAPI' and openapi_agent_client:
-            logger.info(f"Routing query to OpenAPI Agent: '{user_message}'")
             try:
-                # OpenAPI Agent does not necessarily require ADK session service for simple interactions
-                # if its underlying agents are stateless or manage their own state.
-                agent_response = openapi_agent_client.predict(user_message)
-                if not agent_response:
-                    agent_response = "The OpenAPI agent did not provide a specific response. Please try again."
-                    logger.warning(f"OpenAPI Agent returned empty response for '{user_message}'.")
+                # Prepare chat history for LangChain
+                chat_history_lc = []
+                for entry in user_history:
+                    if entry.get("role") == "user":
+                        chat_history_lc.append(HumanMessage(content=entry.get("message")))
+                    elif entry.get("role") == "bot":
+                        chat_history_lc.append(AIMessage(content=entry.get("message")))
+                
+                # Invoke LangChain orchestrator
+                response = lc_orchestrator_chain.invoke(
+                    {"input": message, "chat_history": chat_history_lc}
+                )
+                bot_response = response.get("answer", "No answer from orchestrator.")
+                logger.info(f"LangChain Orchestrator response: {bot_response}")
+
             except Exception as e:
-                logger.error(f"Error querying OpenAPI Agent for '{user_message}': {e}", exc_info=True)
-                agent_response = "I encountered an error while interacting with the OpenAPI service."
-        else: # Covers 'UNKNOWN' decision or if clients are not initialized
-            logger.warning(f"Query '{user_message}' not routed to RAG or OpenAPI. Decision: '{decision}'. Falling back.")
-            agent_response = "I'm currently equipped to answer questions about uploaded documents (RAG) or manage data via the JSONPlaceholder API (users, posts, comments). Please ask me about one of those topics, or provide more context."
+                logger.exception(f"Error during LangChain Orchestrator processing for session {session_id}:")
+                bot_response = "I apologize, but I encountered an error while processing your request using the orchestrator. Please try again later."
+        else:
+            bot_response = "Invalid model configuration. Please check the `MODEL_MODE` environment variable."
+            logger.error(bot_response)
+            return jsonify({"error": bot_response}), 500
 
-        # Add the complete turn (user input + model response) to session history.
-        current_memory.save_context({"input": user_message}, {"output": agent_response})
-
-        response_data = {"status": "success", "response": agent_response, "session_id": session_id}
-        flask_response = jsonify(response_data)
-        flask_response.headers['X-Session-ID'] = session_id
-        return flask_response, 200
+        return jsonify({"response": bot_response})
 
     except Exception as e:
-        logger.exception(f"An unhandled error occurred in bot_chat for query '{user_message}' (Session: {session_id}):")
-        error_message = str(e)
-        if session_id in agent_sessions:
-            current_memory.save_context({"input": user_message}, {"output": f"Error: {error_message}"})
-        return jsonify({"status": "error", "message": error_message}), 500
+        logger.exception("Error in bot_chat endpoint:")
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
 
 @app.route("/api/documents/upload", methods=["POST"])
 def upload_document_endpoint():
