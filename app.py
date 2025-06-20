@@ -173,22 +173,64 @@ def initialize_all_components():
         # --- Orchestrator Decision Chain (Context-Aware Router) ---
         orchestrator_decision_prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(
-                """You are an intelligent routing assistant. Based on the user's current query and the conversation history,
-                decide whether to use the 'RAG' system for document-based questions, the 'OPENAPI' system for
-                JSONPlaceholder API operations (users, posts, comments), or 'GENERAL_KNOWLEDGE' for anything else.
+                """You are a specialized routing assistant. Your ONLY task is to determine the correct system to handle the user's query.
+                You MUST NOT attempt to answer the user's question directly, perform any calculations, or provide any information beyond the routing keyword.
+                Your output MUST be SOLELY one of the following exact keywords, without any additional text, punctuation, or explanation.
+                You are a router, not an answer generator. If the query asks for general knowledge, simply output 'GENERAL_KNOWLEDGE'. Do not provide the answer.
 
-                Consider the full context to make your decision.
+                Your output MUST be one of the following:
+                - 'RAG'
+                - 'OPENAPI'
+                - 'GENERAL_KNOWLEDGE'
 
-                Output ONLY one of the following exact keywords: 'RAG', 'OPENAPI', 'GENERAL_KNOWLEDGE'.
-                Do not add any other text, punctuation, or explanations.
+                Here are the rules for choosing the keyword:
 
-                Examples:
-                User: "What are the pool hours?" -> RAG
-                User: "How about on Saturdays?" (after pool hours) -> RAG
-                User: "List all users" -> OPENAPI
-                User: "Create a new post" -> OPENAPI
-                User: "What is the capital of France?" -> GENERAL_KNOWLEDGE
-                User: "Hello" -> GENERAL_KNOWLEDGE
+                1.  'RAG': Choose this if the user's query is about existing documents, policies, or facts found in a knowledge base (e.g., "What are the rules for residents?", "Tell me about community events", "Where is the nearest post office?").
+                2.  'OPENAPI': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments. This includes listing, creating, getting details, updating, or deleting these entities (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10").
+                3.  'GENERAL_KNOWLEDGE': Choose this for any other type of query. This includes:
+                    - General questions (e.g., "What is the capital of France?", "Who is the president?").
+                    - Greetings, chit-chat, or conversational filler (e.g., "Hello", "How are you?", "Tell me a joke").
+                    - ANY arithmetic, calculations, logical reasoning, or math problems, no matter how simple or complex (e.g., "What is 2 + 2?", "Calculate 12345 * 67890", "What is the square root of 81?", "Solve for X: 2X + 5 = 11"). You *must not* solve these; only route them.
+
+                Examples for Routing (Output is ONLY the keyword):
+                User: "What are the pool hours?"
+                Output: RAG
+
+                User: "How about on Saturdays?"
+                Output: RAG
+
+                User: "List all users"
+                Output: OPENAPI
+
+                User: "Create a new post with title 'My Title' and body 'Hello World'"
+                Output: OPENAPI
+
+                User: "What is the capital of France?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Hello"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "What is 2 + 2?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Calculate 5 times 7, I mean seriously"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Can you tell me how much is 12345 * 67890?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "What is the square root of 81?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "and 4 times 1273017203"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "how far is moon from earth"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "china population pls"
+                Output: GENERAL_KNOWLEDGE
                 """
             ),
             MessagesPlaceholder(variable_name="chat_history"), # THIS IS THE KEY FOR CONTEXT-AWARE ROUTING
@@ -202,6 +244,7 @@ def initialize_all_components():
             SystemMessagePromptTemplate.from_template(
                 """You are a helpful and knowledgeable AI assistant.
                 Answer the user's question directly and concisely based on your general knowledge and the conversation history.
+                If the user's query is a math problem or calculation, perform the calculation and provide the numerical answer.
                 If you truly do not know the answer or the question is outside your general knowledge,
                 politely state "I'm sorry, I don't have enough general knowledge to answer that specific question right now."
                 Do not attempt to use any tools or external resources; rely solely on your internal knowledge.
@@ -286,6 +329,13 @@ def bot_chat():
                 decision_raw = orchestrator_decision_chain.invoke(routing_input)
                 decision = decision_raw.strip().upper()
                 logger.info(f"Orchestrator decision for '{user_message}' (with history): '{decision_raw.strip()}' -> '{decision}'")
+
+                # --- NEW: Output Validation for Orchestrator ---
+                valid_decisions = {'RAG', 'OPENAPI', 'GENERAL_KNOWLEDGE'}
+                if decision not in valid_decisions:
+                    logger.warning(f"Orchestrator returned an invalid decision '{decision}'. Forcing to GENERAL_KNOWLEDGE.")
+                    decision = 'GENERAL_KNOWLEDGE' # Force to a valid fallback route
+
             except Exception as e:
                 logger.error(f"Error during orchestrator routing decision for '{user_message}': {e}", exc_info=True)
                 decision = 'GENERAL_KNOWLEDGE' # Fallback to GK if routing fails
