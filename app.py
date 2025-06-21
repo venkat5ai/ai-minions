@@ -186,7 +186,7 @@ def initialize_all_components():
                 Here are the rules for choosing the keyword:
 
                 1.  'RAG': Choose this if the user's query is about existing documents, policies, or facts found in a knowledge base (e.g., "What are the rules for residents?", "Tell me about community events", "Where is the nearest post office?").
-                2.  'OPENAPI': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments. This includes listing, creating, getting details, updating, or deleting these entities (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10").
+                2.  'OPENAPI': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments, or requires analysis of data from these resources. This includes listing, creating, getting details, updating, deleting, or performing analysis (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10", "Which user has the most posts?", "How many comments does post 3 have?").
                 3.  'GENERAL_KNOWLEDGE': Choose this for any other type of query. This includes:
                     - General questions (e.g., "What is the capital of France?", "Who is the president?").
                     - Greetings, chit-chat, or conversational filler (e.g., "Hello", "How are you?", "Tell me a joke").
@@ -203,6 +203,9 @@ def initialize_all_components():
                 Output: OPENAPI
 
                 User: "Create a new post with title 'My Title' and body 'Hello World'"
+                Output: OPENAPI
+                
+                User: "Which user has the most posts?"
                 Output: OPENAPI
 
                 User: "What is the capital of France?"
