@@ -24,12 +24,13 @@ from openapi.agent import root_agent # Changed import
 
 def main(argv: list[str]) -> None:
 
-    load_dotenv()
+    ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    # Load environment variables from the specified .env file
+    load_dotenv(dotenv_path=ENV_FILE_PATH)
 
     PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
     LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
-    STAGING_BUCKET = os.environ["GOOGLE_CLOUD_STORAGE_BUCKET"]
-    ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    STAGING_BUCKET = os.environ["STAGING_BUCKET"]
 
     if not PROJECT:
         print("Missing required environment variable: GOOGLE_CLOUD_PROJECT")
@@ -38,7 +39,7 @@ def main(argv: list[str]) -> None:
         print("Missing required environment variable: GOOGLE_CLOUD_LOCATION")
         return
     elif not STAGING_BUCKET:
-        print("Missing required environment variable: GOOGLE_CLOUD_STORAGE_BUCKET")
+        print("Missing required environment variable: STAGING_BUCKET")
         return
 
     print(f"PROJECT: {PROJECT}")
@@ -48,7 +49,7 @@ def main(argv: list[str]) -> None:
     vertexai.init(
         project=PROJECT,
         location=LOCATION,
-        staging_bucket=f"gs://{STAGING_BUCKET}",
+        staging_bucket=STAGING_BUCKET,
     )
 
     app = AdkApp(agent=root_agent, enable_tracing=False)

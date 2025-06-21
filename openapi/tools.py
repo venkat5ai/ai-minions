@@ -1,8 +1,11 @@
 # tools.py
 import os
 import json
-from google.adk.tools.openapi_tool.openapi_toolset import OpenApiToolset
-from google.adk.tools.openapi_tool.auth.auth_helpers import NoAuthScheme, NoAuthCredential
+# Removed imports for requests, Counter, and langchain.tools
+
+from google.adk.tools.openapi_tool.openapi_spec_parser.openapi_toolset import OpenAPIToolset
+from google.adk.tools.openapi_tool.auth.auth_helpers import token_to_scheme_credential
+
 
 # Get the directory of the current file
 current_dir = os.path.dirname(__file__)
@@ -14,57 +17,14 @@ with open(OPENAPI_SPEC_FILE, 'r') as f:
     jsonplaceholder_spec = json.load(f)
 
 # Common authentication (none for JSONPlaceholder)
-auth_scheme = NoAuthScheme()
-auth_credential = NoAuthCredential()
+auth_scheme = None 
+auth_credential = None 
 
-# --- User API Toolset ---
-# Filter operations that start with 'listUsers', 'getUser', 'createUser', 'updateUser', 'deleteUser'
-users_api = OpenApiToolset(
-    name="jsonplaceholder-users-api",
-    description="API for managing JSONPlaceholder users, including listing, retrieving, creating, updating, and deleting users.",
-    openapi_spec=jsonplaceholder_spec,
+# --- JSONPlaceholder OpenAPI API Toolset ---
+# This toolset exposes the API operations defined in jsonplaceholder_spec.json
+jsonplaceholder_apis = OpenAPIToolset(
+    spec_str=json.dumps(jsonplaceholder_spec),
+    spec_str_type="json",
     auth_scheme=auth_scheme,
-    auth_credential=auth_credential,
-    include_operations=[
-        "listUsers",
-        "getUserById",
-        "createUser",
-        "updateUser",
-        "deleteUser"
-    ]
+    auth_credential=auth_credential
 )
-
-# --- Posts API Toolset ---
-# Filter operations related to posts, including listing comments for a post
-posts_api = OpenApiToolset(
-    name="jsonplaceholder-posts-api",
-    description="API for managing JSONPlaceholder posts, including listing, retrieving, creating, and listing comments for specific posts.",
-    openapi_spec=jsonplaceholder_spec,
-    auth_scheme=auth_scheme,
-    auth_credential=auth_credential,
-    include_operations=[
-        "listPosts",
-        "getPostById",
-        "createPost",
-        "listCommentsForPost" # This operation is associated with posts/{id}/comments
-    ]
-)
-
-# --- Comments API Toolset ---
-# Filter operations related to top-level comments
-comments_api = OpenApiToolset(
-    name="jsonplaceholder-comments-api",
-    description="API for managing JSONPlaceholder comments, including listing, retrieving, and creating comments.",
-    openapi_spec=jsonplaceholder_spec,
-    auth_scheme=auth_scheme,
-    auth_credential=auth_credential,
-    include_operations=[
-        "listComments",
-        "getCommentById",
-        "createComment"
-    ]
-)
-
-# NOTE: We no longer need separate get_tools() functions, as each OpenApiToolset
-# instance now directly represents a logical API grouping, and its .get_tools()
-# method will return only the operations specified in 'include_operations'.

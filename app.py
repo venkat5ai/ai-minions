@@ -1,8 +1,10 @@
 import os
 import uuid
 import logging
-import asyncio # For ADK session creation
+import asyncio
 import sys
+import json
+import pprint # Added for pretty printing debug logs
 from typing import Dict, Any, Union, List
 
 # Flask imports
@@ -22,557 +24,600 @@ from google.adk.sessions import VertexAiSessionService
 
 # LangChain Agent and Tooling imports
 from langchain_google_vertexai import ChatVertexAI
-# Explicitly import individual prompt message templates for robustness
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
-    PromptTemplate,
     HumanMessagePromptTemplate,
-    SystemMessagePromptTemplate
+    SystemMessagePromptTemplate,
+    AIMessagePromptTemplate
 )
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage
-from langchain.memory import ConversationBufferMemory # Still used for general knowledge and orchestrator history
-from langchain_core.output_parsers import StrOutputParser # Explicitly import StrOutputParser
-
-# For PDF document loading (used in upload endpoint)
-from langchain_community.document_loaders import PyPDFLoader 
+from langchain.memory import ConversationBufferMemory
+from langchain_core.output_parsers import StrOutputParser
 
 # Utility for secure filenames
 from werkzeug.utils import secure_filename
 
-# NEW: Import document storage utilities
+# NEW: Import agent clients (assuming agent_clients.py exists and provides these)
+from agent_clients import get_rag_agent_client, get_openapi_agent_client
+
+# NEW: Import document storage utilities (assuming document_storage_utils.py exists)
 import document_storage_utils
 
 
-# --- Logging Setup ---
-# Use LOG_LEVEL from .env or default to DEBUG
-LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+# --- Global Flask Application Setup ---
+app = Flask(__name__)
+CORS(app)
+
+# --- Logging Configuration ---
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Configuration (Pulled directly from environment variables) ---
-FLASK_APP_NAME = os.getenv("FLASK_APP_NAME", "AI_Assistant_RAG")
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", 3010))
-FLASK_DEBUG = os.getenv("FLASK_DEBUG", "True").lower() in ['true', '1']
+# --- Global Agent/LLM Clients ---
+rag_agent_client = None
+openapi_agent_client = None
+adk_session_service = None
 
-GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "api-project-507154614599")
-VERTEX_AI_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1") # Using GOOGLE_CLOUD_LOCATION for consistency
-GOOGLE_GENAI_USE_VERTEXAI = int(os.getenv("GOOGLE_GENAI_USE_VERTEXAI", 1))
+# Orchestrator and General Knowledge LLM components
+orchestrator_llm = None
+orchestrator_decision_chain = None
+general_knowledge_llm = None
+general_knowledge_chain = None
 
-RAG_CORPUS = os.getenv("RAG_CORPUS")
-AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID")
+# In-memory store for AgentExecutors and their memories
+# {session_id: {"memory": ConversationBufferMemory_instance, "rag_adk_session_id": Optional[str], "openapi_adk_session_id": Optional[str]}}
+agent_sessions: Dict[str, Dict[str, Any]] = {}
 
-# LLM Configuration
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gemini-2.0-flash-001")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", 0.2))
 
-# Document Storage Directory (for temporary file uploads)
-DOCUMENT_STORAGE_DIRECTORY = os.getenv("DOCUMENT_STORAGE_DIRECTORY", "/app/data")
+# --- Application Configuration from Environment Variables ---
+FLASK_APP_NAME = os.environ.get("FLASK_APP_NAME", "AI_Assistant_RAG")
+HOST = os.environ.get("HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", 3010))
+FLASK_DEBUG = os.environ.get("FLASK_DEBUG", "False").lower() in ('true', '1', 't')
 
-# Gunicorn Configuration
-GUNICORN_TIMEOUT = int(os.getenv("GUNICORN_TIMEOUT", 120))
-GUNICORN_WORKERS = int(os.getenv("GUNICORN_WORKERS", 2))
+PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
+LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
+STAGING_BUCKET = os.environ.get("STAGING_BUCKET")
+RAG_CORPUS = os.environ.get("RAG_CORPUS")
+
+LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-2.0-flash-001")
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", 0.2))
+
+# Agent Engine IDs are full resource names from .env
+RAG_AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID")
+OPENAPI_AGENT_ENGINE_ID = os.getenv("OPENAPI_AGENT_ENGINE_ID")
+
+DOCUMENT_STORAGE_DIRECTORY = os.environ.get("DOCUMENT_STORAGE_DIRECTORY", "/app/data")
+
+GUNICORN_TIMEOUT = int(os.environ.get("GUNICORN_TIMEOUT", 120))
+GUNICORN_WORKERS = int(os.environ.get("GUNICORN_WORKERS", 2))
 
 
 # --- Pre-flight Checks (Crucial for proper operation) ---
 def perform_preflight_checks():
     logger.info("Performing pre-flight checks...")
-    
-    # Check for GOOGLE_APPLICATION_CREDENTIALS for local Flask app access to GCP
-    if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        logger.warning("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set. This is required for authenticating with Google Cloud services like Vertex AI. Please set it to the path of your service account key file within the container (e.g., /app/key.json).")
-        # sys.exit(1)
-    
-    if not GOOGLE_CLOUD_PROJECT.strip():
-        logger.error("GOOGLE_CLOUD_PROJECT is not set. Please set the GOOGLE_CLOUD_PROJECT environment variable.")
+
+    if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and not os.getenv("K_SERVICE"):
+        logger.warning("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set. This is recommended for local development to authenticate with Google Cloud services like Vertex AI. For Cloud Run, service account attached to the service will be used.")
+
+    if not PROJECT:
+        logger.error("GOOGLE_CLOUD_PROJECT is not set. Please set this environment variable.")
         sys.exit(1)
 
-    if VERTEX_AI_LOCATION == "us-central1" and not os.getenv("GOOGLE_CLOUD_LOCATION"):
-        logger.warning("VERTEX_AI_LOCATION is set to default 'us-central1'. Ensure this is your desired Vertex AI location.")
-    
-    if not AGENT_ENGINE_ID:
-        logger.error("AGENT_ENGINE_ID is not set. This is required for Vertex AI RAG Engine. Please set the AGENT_ENGINE_ID environment variable.")
+    if not LOCATION:
+        logger.error("GOOGLE_CLOUD_LOCATION is not set. Please set this environment variable.")
         sys.exit(1)
 
-    if not RAG_CORPUS:
-        logger.error("RAG_CORPUS is not set. This is required for uploading documents to the RAG Corpus and for the RAG agent itself. Please set the RAG_CORPUS environment variable.")
-        sys.exit(1)
-    
-    if not os.getenv("STAGING_BUCKET"):
-        logger.error("STAGING_BUCKET is not set. This is required for staging files for RAG corpus upload. Please set the STAGING_BUCKET environment variable.")
+    if not RAG_AGENT_ENGINE_ID and not OPENAPI_AGENT_ENGINE_ID:
+        logger.error("Neither AGENT_ENGINE_ID nor OPENAPI_AGENT_ENGINE_ID is set. At least one agent engine ID is required for agent functionality.")
         sys.exit(1)
 
-    logger.info("All essential configuration variables for RAG Engine integration are set.")
-# --- End Pre-flight Checks ---
+    if not RAG_CORPUS and RAG_AGENT_ENGINE_ID:
+        logger.warning("RAG_CORPUS is not set, but AGENT_ENGINE_ID (for RAG) is. Document upload and RAG queries might fail without a corpus.")
 
-# --- Global Flask Application Instance and LLM Initializations ---
-app = Flask(FLASK_APP_NAME)
-CORS(app)
-# app.config.from_object(Config) # Removed: No longer using Config object
+    if not STAGING_BUCKET:
+        logger.error("STAGING_BUCKET is not set. This is required for staging files for RAG corpus upload and other Vertex AI operations. Please set this environment variable.")
+        sys.exit(1)
 
-perform_preflight_checks()
-
-# Global LLM instance (initialized in initialize_rag_components)
-llm = None
-general_knowledge_chain = None
-orchestrator_decision_chain = None
-adk_session_service = None
-agent_engine_client = None # Will hold the specific agent engine client
-
-# In-memory store for AgentExecutors and their memories
-# {session_id: {"memory": ConversationBufferMemory_instance, "adk_session_id": Optional[str]}}
-agent_sessions: Dict[str, Dict[str, Any]] = {}
+    logger.info("Essential configuration variables checked successfully.")
 
 
-# --- LLM for general knowledge questions (simpler, direct responses) ---
-def initialize_general_knowledge_chain():
-    global general_knowledge_chain
-    general_knowledge_llm = ChatVertexAI(
-        project=GOOGLE_CLOUD_PROJECT,
-        location=VERTEX_AI_LOCATION,
-        model_name=LLM_MODEL_NAME,
-        temperature=0.1 # Keep low for factual answers
-    )
-
-    general_knowledge_prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a helpful and knowledgeable AI assistant.
-                   Answer the user's question directly and concisely based on your general knowledge.
-                   If you truly do not know the answer or the question is outside your general knowledge,
-                   politely state "I'm sorry, I don't have enough general knowledge to answer that specific question right now."
-                   Do not attempt to use any tools or external resources; rely solely on your internal knowledge.
-                   """),
-        MessagesPlaceholder(variable_name="messages")
-    ])
-
-    general_knowledge_chain = general_knowledge_prompt | general_knowledge_llm | StrOutputParser()
-    logger.info("General knowledge chain initialized.")
-
-
-# --- LLM for simple orchestration decision (RAG vs. General Knowledge) ---
-def initialize_orchestrator_decision_chain():
-    global orchestrator_decision_chain
-    orchestrator_llm_decision = ChatVertexAI(
-        project=GOOGLE_CLOUD_PROJECT,
-        location=VERTEX_AI_LOCATION,
-        model_name=LLM_MODEL_NAME,
-        temperature=0.0 # Keep very low for deterministic decisions
-    )
-
-    # NOTE: This prompt is for the orchestrator, guiding it to decide between RAG and GK.
-    # It does NOT directly control the deployed RAG Agent Engine's behavior.
-    orchestrator_decision_prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content="You are a routing assistant. Your task is to decide whether a user's query should be handled "
-                              "by a document retrieval system (RAG) or by general knowledge. "
-                              "If the query explicitly asks about specific details that would likely be in an uploaded document "
-                              "(e.g., 'What are the pool hours?', 'What is HRISHIKESH's education?', 'Rules for children', "
-                              "or questions about policies, manuals, specific products, etc.), "
-                              "output 'USE_DOCUMENT_QUERY_TOOL'. "
-                              "If the query is a general factual question (e.g., 'Who is the president of the USA?', 'What is the capital of France?'), "
-                              "output 'USE_GENERAL_KNOWLEDGE'. "
-                              "You MUST respond with only one of these two exact strings: 'USE_DOCUMENT_QUERY_TOOL' or 'USE_GENERAL_KNOWLEDGE'. "
-                              "DO NOT include any other text, punctuation, or explanations in your response. Just the exact string."),
-        HumanMessage(content="{query}"),
-    ])
-
-    orchestrator_decision_chain = orchestrator_decision_prompt | orchestrator_llm_decision | StrOutputParser()
-    logger.info("Orchestrator decision chain initialized.")
-
-
-# --- Function to initialize core RAG components (LLM, Reranker) ---
-def initialize_rag_components():
-    global llm, adk_session_service, agent_engine_client
+# --- Agent and Orchestrator Initialization Function ---
+def initialize_all_components():
+    """
+    Initializes Vertex AI SDK, ADK Session Service, RAG/OpenAPI Agent Engine clients,
+    and the LangChain-based orchestrator and general knowledge chains.
+    """
+    global rag_agent_client, openapi_agent_client, adk_session_service
+    global orchestrator_llm, orchestrator_decision_chain, general_knowledge_llm, general_knowledge_chain
 
     try:
+        # Initialize Vertex AI SDK
         vertexai.init(
-            project=GOOGLE_CLOUD_PROJECT,
-            location=VERTEX_AI_LOCATION,
+            project=PROJECT,
+            location=LOCATION,
+            staging_bucket=f"gs://{STAGING_BUCKET}",
         )
-        logger.info(f"Vertex AI SDK initialized. Project: {GOOGLE_CLOUD_PROJECT}, Location: {VERTEX_AI_LOCATION}")
+        logger.info("Vertex AI SDK initialized for application.")
 
-        llm = ChatVertexAI( # This LLM is for the orchestrator and general knowledge
-            project=GOOGLE_CLOUD_PROJECT,
-            location=VERTEX_AI_LOCATION,
-            model_name=LLM_MODEL_NAME,
-            temperature=LLM_TEMPERATURE
-        )
-        logger.info(f"Orchestrator/General Knowledge LLM initialized: {LLM_MODEL_NAME}")
-
+        # Initialize ADK Session Service (needed for creating/managing ADK sessions for deployed agents)
         adk_session_service = VertexAiSessionService(
-            project=GOOGLE_CLOUD_PROJECT,
-            location=VERTEX_AI_LOCATION
+            project=PROJECT,
+            location=LOCATION
         )
         logger.info("Vertex AI ADK Session Service initialized.")
 
-        if AGENT_ENGINE_ID:
-            agent_engine_client = agent_engines.get(AGENT_ENGINE_ID)
-            logger.info(f"Agent Engine client retrieved for ID: {AGENT_ENGINE_ID}")
-        else:
-            logger.error("AGENT_ENGINE_ID is not configured. RAG queries will fail.")
+        # Initialize RAG Agent Client (if ID provided)
+        rag_agent_client = get_rag_agent_client()
+        if not rag_agent_client:
+            logger.warning("RAG Agent Client could not be initialized. RAG functionality will be unavailable.")
+
+        # Initialize OpenAPI Agent Client (if ID provided)
+        openapi_agent_client = get_openapi_agent_client()
+        if not openapi_agent_client:
+            logger.warning("OpenAPI Agent Client could not be initialized. OpenAPI functionality will be unavailable.")
+
+        # Initialize LLM for Orchestrator and General Knowledge
+        orchestrator_llm = ChatVertexAI(
+            model_name=LLM_MODEL_NAME,
+            temperature=0.0,
+            convert_system_message_to_human=True,
+        )
+        general_knowledge_llm = ChatVertexAI(
+            model_name=LLM_MODEL_NAME,
+            temperature=0.7,
+            convert_system_message_to_human=True,
+        )
+        logger.info("Orchestrator and General Knowledge LLMs initialized.")
+
+        # --- Orchestrator Decision Chain (Context-Aware Router) ---
+        orchestrator_decision_prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(
+                """You are a specialized routing assistant. Your ONLY task is to determine the correct system to handle the user's query.
+                You MUST NOT attempt to answer the user's question directly, perform any calculations, or provide any information beyond the routing keyword.
+                Your output MUST be SOLELY one of the following exact keywords, without any additional text, punctuation, or explanation.
+                You are a router, not an answer generator. If the query asks for general knowledge, simply output 'GENERAL_KNOWLEDGE'. Do not provide the answer.
+
+                Your output MUST be one of the following:
+                - 'RAG'
+                - 'OPENAPI'
+                - 'GENERAL_KNOWLEDGE'
+
+                Here are the rules for choosing the keyword:
+
+                1.  'RAG': Choose this if the user's query is about existing documents, policies, or facts found in a knowledge base (e.g., "What are the rules for residents?", "Tell me about community events", "Where is the nearest post office?").
+                2.  'OPENAPI': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments, or requires analysis of data from these resources. This includes listing, creating, getting details, updating, deleting, or performing analysis (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10", "Which user has the most posts?", "How many comments does post 3 have?").
+                3.  'GENERAL_KNOWLEDGE': Choose this for any other type of query. This includes:
+                    - General questions (e.g., "What is the capital of France?", "Who is the president?").
+                    - Greetings, chit-chat, or conversational filler (e.g., "Hello", "How are you?", "Tell me a joke").
+                    - ANY arithmetic, calculations, logical reasoning, or math problems, no matter how simple or complex (e.g., "What is 2 + 2?", "Calculate 12345 * 67890", "What is the square root of 81?", "Solve for X: 2X + 5 = 11"). You *must not* solve these; only route them.
+
+                Examples for Routing (Output is ONLY the keyword):
+                User: "What are the pool hours?"
+                Output: RAG
+
+                User: "How about on Saturdays?"
+                Output: RAG
+
+                User: "List all users"
+                Output: OPENAPI
+
+                User: "Create a new post with title 'My Title' and body 'Hello World'"
+                Output: OPENAPI
+                
+                User: "Which user has the most posts?"
+                Output: OPENAPI
+
+                User: "What is the capital of France?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Hello"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "What is 2 + 2?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Calculate 5 times 7, I mean seriously"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "Can you tell me how much is 12345 * 67890?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "What is the square root of 81?"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "and 4 times 1273017203"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "how far is moon from earth"
+                Output: GENERAL_KNOWLEDGE
+
+                User: "china population pls"
+                Output: GENERAL_KNOWLEDGE
+                """
+            ),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{query}")
+        ])
+        orchestrator_decision_chain = orchestrator_decision_prompt | orchestrator_llm | StrOutputParser()
+        logger.info("Orchestrator decision chain (context-aware) initialized.")
+
+        # --- General Knowledge Chain (with history) ---
+        general_knowledge_prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(
+                """You are a helpful and knowledgeable AI assistant.
+                Answer the user's question directly and concisely based on your general knowledge and the conversation history.
+                If the user's query is a math problem or calculation, perform the calculation and provide the numerical answer.
+                If you truly do not know the answer or the question is outside your general knowledge,
+                politely state "I'm sorry, I don't have enough general knowledge to answer that specific question right now."
+                Do not attempt to use any tools or external resources; rely solely on your internal knowledge.
+                """
+            ),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{query}")
+        ])
+        general_knowledge_chain = general_knowledge_prompt | general_knowledge_llm | StrOutputParser()
+        logger.info("General knowledge chain (with history) initialized.")
 
     except Exception as e:
-        logger.error(f"Error during RAG component initialization: {e}", exc_info=True)
-        sys.exit("Failed to initialize core RAG components.")
-
-    initialize_general_knowledge_chain()
-    initialize_orchestrator_decision_chain()
-    logger.info("All RAG components initialized.")
-
-# --- Main Orchestrator Logic ---
-def main_orchestrator(input_data: Dict[str, Any]) -> str:
-    user_query = input_data["input"]
-    session_id = input_data["session_id"]
-    user_id = input_data.get('user_id', 'default_user')
-
-    logger.info(f"Main Orchestrator: Received query '{user_query}' (Session: {session_id})")
-
-    current_memory = agent_sessions[session_id]["memory"]
-    history = current_memory.load_memory_variables({})["chat_history"]
-    
-    logger.debug(f"Main Orchestrator: Determining query type for '{user_query}'.")
-    response_content = "I apologize, but I cannot answer that question at this time. Please try rephrasing." # Default fallback
-
-    try:
-        if orchestrator_decision_chain is None:
-            logger.error("Orchestrator decision chain is not initialized. Cannot make routing decision.")
-            return "The AI system is not fully initialized. Please try again later."
-
-        # The orchestrator's decision prompt is more specific now
-        decision_raw = orchestrator_decision_chain.invoke({"query": user_query}).strip().upper() 
-        decision = ""
-        if "USE_DOCUMENT_QUERY_TOOL" in decision_raw:
-            decision = "USE_DOCUMENT_QUERY_TOOL"
-        elif "USE_GENERAL_KNOWLEDGE" in decision_raw:
-            decision = "USE_GENERAL_KNOWLEDGE"
-
-        logger.info(f"Main Orchestrator: Parsed decision for '{user_query}': '{decision}'")
-
-        if decision == "USE_DOCUMENT_QUERY_TOOL":
-            logger.info(f"Main Orchestrator: Decision to use RAG Engine for query: '{user_query}'.")
-            
-            if not agent_engine_client:
-                logger.error("Agent Engine client is not initialized. Cannot perform RAG query.")
-                return "The RAG system is not available at the moment. Please try again later."
-
-            adk_session_id = agent_sessions[session_id].get("adk_session_id")
-            if not adk_session_id:
-                try:
-                    logger.info(f"Creating new ADK session for Flask session {session_id}, user {user_id}")
-                    logger.debug(f"ADK Session Service app_name for creation: {AGENT_ENGINE_ID}")
-                    adk_session = asyncio.run(adk_session_service.create_session(
-                        app_name=AGENT_ENGINE_ID, 
-                        user_id=user_id
-                    ))
-                    adk_session_id = adk_session.id
-                    agent_sessions[session_id]["adk_session_id"] = adk_session_id
-                    logger.info(f"Created ADK session {adk_session_id} for Flask session {session_id}")
-                except Exception as e:
-                    logger.error(f"Failed to create ADK session for {user_id}/{session_id}: {e}", exc_info=True)
-                    return "Failed to initialize a session with the RAG system. Please try again."
-            
-            logger.debug(f"Using ADK session {adk_session_id} for RAG query.")
-            logger.debug(f"Calling agent_engine_client.stream_query with user_id='{user_id}', session_id='{adk_session_id}', message='{user_query}'")
-            
-            rag_actual_content = ""
-            stream_events_received = 0 # NEW: Counter for events received from stream
-            
-            try:
-                response_stream = agent_engine_client.stream_query(
-                    user_id=user_id,
-                    session_id=adk_session_id,
-                    message=user_query,
-                )
-                
-                for event in response_stream:
-                    stream_events_received += 1
-                    # logger.debug(f"Received event from RAG Engine stream (Event {stream_events_received}): {event}")
-                    
-                    if "content" in event and "parts" in event["content"]:
-                        for part in event["content"]["parts"]:
-                            if "text" in part:
-                                rag_actual_content += part["text"]
-                    # NEW: Log specific event types if they contain relevant information
-                    if "tool_code" in event:
-                        logger.debug(f"RAG Engine sent tool_code event: {event.get('tool_code')}")
-                    if "state_delta" in event:
-                        logger.debug(f"RAG Engine sent state_delta event: {event.get('state_delta')}")
-                    if "actions" in event:
-                        logger.debug(f"RAG Engine sent actions event: {event.get('actions')}")
-
-                logger.debug(f"Finished processing RAG Engine stream. Total events received: {stream_events_received}")
-                rag_actual_content = rag_actual_content.strip()
-                logger.debug(f"RAG Engine Response (FULL RAW): '{rag_actual_content}'")
-                logger.info(f"RAG Engine Response (summary): '{rag_actual_content[:100]}'...")
-            except Exception as e:
-                logger.error(f"Error querying RAG Engine for '{user_query}': {e}", exc_info=True)
-                rag_actual_content = "I encountered an issue while trying to retrieve information from the documents."
-
-            # Check if RAG provided a substantial answer
-            no_meaningful_answer_indicators = [
-                "The information is not available in the provided documents.",
-                "I couldn't find any documents",
-                "I'm sorry, I cannot answer this question based on the provided documents.",
-                "I am sorry, but I can't answer that question using the documents I have access to.",
-                # Add any other specific "no answer" phrases your Agent Engine might produce
-            ]
-
-            found_meaningful_answer = True
-            if not rag_actual_content:
-                found_meaningful_answer = False
-                logger.info("RAG Engine returned empty content.")
-            else:
-                for indicator in no_meaningful_answer_indicators:
-                    if indicator.lower() in rag_actual_content.lower(): # Case-insensitive check
-                        found_meaningful_answer = False
-                        logger.info(f"RAG Engine response contained no meaningful answer indicator: '{indicator}'.")
-                        break
-
-            if not found_meaningful_answer:
-                logger.info(f"Main Orchestrator: RAG Engine did not provide a substantive answer. Falling back to general knowledge for '{user_query}'.")
-                messages_for_gk = history + [HumanMessage(content=user_query)]
-                
-                cleaned_messages_for_gk = []
-                for i, msg in enumerate(messages_for_gk):
-                    if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
-                        if msg.content is not None and msg.content.strip() != "":
-                            cleaned_messages_for_gk.append(msg)
-                        else:
-                            logger.warning(f"Skipping empty message content at index {i} in messages_for_gk: {msg}")
-                    else:
-                        logger.warning(f"Unexpected message type in messages_for_gk at index {i}: {type(msg)}. Content: {msg}")
-                        if msg.content is not None and msg.content.strip() != "":
-                            cleaned_messages_for_gk.append(msg)
-
-                logger.debug(f"General Knowledge Chain Input: Messages Length: {len(cleaned_messages_for_gk)}")
-                gk_response = general_knowledge_chain.invoke({"messages": cleaned_messages_for_gk})
-                
-                if gk_response and "I'm sorry, I don't have enough general knowledge" not in gk_response:
-                    logger.info(f"Main Orchestrator: General knowledge LLM provided an answer. Response: {gk_response[:100]}...") 
-                    response_content = gk_response
-                else:
-                    logger.info(f"Main Orchestrator: Both RAG and general knowledge failed for '{user_query}'.")
-                    response_content = "I couldn't find relevant information in your documents, and I don't have general knowledge to answer that."
-            else:
-                logger.info(f"Main Orchestrator: RAG Engine successfully answered. Final RAG content: '{rag_actual_content[:100]}'...")
-                response_content = rag_actual_content
-        elif decision == "USE_GENERAL_KNOWLEDGE":
-            logger.info(f"Main Orchestrator: Decision to use general knowledge. Executing general knowledge path.")
-            messages_for_gk = history + [HumanMessage(content=user_query)]
-
-            cleaned_messages_for_gk = []
-            for i, msg in enumerate(messages_for_gk):
-                if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
-                    if msg.content is not None and msg.content.strip() != "":
-                        cleaned_messages_for_gk.append(msg)
-                    else:
-                        logger.warning(f"Skipping empty message content at index {i} in messages_for_gk: {msg}")
-                else:
-                    logger.warning(f"Unexpected message type in messages_for_gk at index {i}: {type(msg)}. Content: {msg}")
-                    if msg.content is not None and msg.content.strip() != "":
-                        cleaned_messages_for_gk.append(msg)
-
-            logger.debug(f"General Knowledge Chain Input: Messages Length: {len(cleaned_messages_for_gk)}")
-            gk_response = general_knowledge_chain.invoke({"messages": cleaned_messages_for_gk})
-            
-            if gk_response and "I'm sorry, I don't have enough general knowledge" not in gk_response:
-                logger.info(f"Main Orchestrator: General knowledge LLM provided an answer. Response: {gk_response[:100]}...") 
-                response_content = gk_response
-            else:
-                logger.info(f"Main Orchestrator: General knowledge failed for '{user_query}'.")
-                response_content = "I'm sorry, I don't have enough general knowledge to answer that specific question right now."
-        else:
-            logger.warning(f"Main Orchestrator: Unparsed decision from orchestrator LLM: '{decision_raw}'. Falling back to generic response.")
-            response_content = "I'm not sure how to handle that request. Could you please rephrase it?"
-
-        logger.info(f"Main Orchestrator: Returning response_content: '{response_content[:100]}'...")
-        return response_content
-
-    except Exception as e:
-        logger.error(f"Main Orchestrator: Error during query path execution for '{user_query}': {e}", exc_info=True)
-        error_response = "I encountered an unexpected error while trying to process your request. Please try again later."
-        return error_response
+        logger.critical(f"Failed to initialize one or more core components: {e}. Exiting.", exc_info=True)
+        sys.exit(1)
 
 
 # --- Flask Routes ---
 
-@app.route('/api/bot', methods=['POST'])
-def handle_bot_request():
+@app.route("/")
+def index():
+    """Renders the main index page (your chat UI)."""
+    return render_template("index.html")
+
+
+@app.route("/api/bot", methods=["POST"])
+def bot_chat():
     """
-    Main endpoint for the bot to receive and process requests.
-    Generates/manages session_id for RAG context.
+    Handles chat messages, routing them to the appropriate agent (RAG or OpenAPI)
+    or to a general knowledge fallback based on the user's query intent,
+    considering conversation history.
     """
-    if not request.is_json:
-        logger.warning("Received non-JSON request to /api/bot (non-JSON content-type).")
-        return jsonify({"status": "error", "message": "Request must be JSON"}), 400
-
-    data = request.get_json()
-    user_query = data.get('query')
-    user_id = data.get('user_id', 'default_user')
-    
-    if not user_query:
-        logger.warning("Invalid request: Missing 'query' in JSON payload.")
-        return jsonify({"status": "error", "message": "Missing 'query' in request."}), 400
-
-    session_id = request.headers.get('X-Session-ID') or data.get('session_id')
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        logger.info(f"Generated new session ID: {session_id} for query: '{user_query}'.")
-    else:
-        logger.info(f"Using existing session ID: {session_id} for query: '{user_query}'.")
-
-    # Initialize session memory if not already present
-    if session_id not in agent_sessions:
-        agent_sessions[session_id] = {
-            "memory": ConversationBufferMemory(memory_key="chat_history", return_messages=True),
-            "adk_session_id": None # Initialize ADK session ID as None
-        }
-        logger.info(f"Initialized new memory for session: {session_id}")
-
-    current_memory = agent_sessions[session_id]["memory"] # Get the memory instance for this session
+    user_message = None
+    session_id = None
+    user_id = 'default_user'
 
     try:
-        final_response = main_orchestrator({"input": user_query, "session_id": session_id, "user_id": user_id})
-        
-        if not final_response.strip():
-            final_response = "I'm sorry, I couldn't provide a specific answer for that query at this time. It might be outside my current knowledge or require more context."
-            logger.warning(f"Final response was empty for query '{user_query}' after main orchestrator. Returning generic fallback.")
+        if not request.is_json:
+            logger.error(f"Received non-JSON request to /api/bot. Content-Type: {request.headers.get('Content-Type')}")
+            return jsonify({"status": "error", "message": "Invalid request: Expected 'application/json' Content-Type."}), 400
 
-        logger.info(f"Overall final response to UI for query '{user_query}' (Session: {session_id}): {final_response[:200]}...") 
+        request_data = request.get_json()
+        if not request_data:
+            logger.error("Request payload is empty or not valid JSON.")
+            return jsonify({"status": "error", "message": "Invalid request: Empty or malformed JSON payload."}), 400
+
+        user_message = request_data.get("query")
+        session_id = request_data.get("session_id")
+        user_id = request_data.get('user_id', 'default_user')
+
+        if not user_message:
+            logger.warning("No 'query' message provided in the request payload.")
+            return jsonify({"status": "error", "message": "No message provided. Please type a query."}), 400
+
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            logger.info(f"Generated new session ID: {session_id} for query: '{user_message}'.")
+        else:
+            logger.info(f"Using existing session ID: {session_id} for query: '{user_message}'.")
+
+        if session_id not in agent_sessions:
+            agent_sessions[session_id] = {
+                "memory": ConversationBufferMemory(memory_key="chat_history", return_messages=True),
+                "rag_adk_session_id": None,
+                "openapi_adk_session_id": None
+            }
+            logger.info(f"Initialized new state for session: {session_id}")
+
+        current_memory = agent_sessions[session_id]["memory"]
+        chat_history = current_memory.load_memory_variables({})["chat_history"]
+
+        agent_response = ""
+        decision = 'UNKNOWN'
+
+        if orchestrator_decision_chain:
+            try:
+                routing_input = {"query": user_message, "chat_history": chat_history}
+                decision_raw = orchestrator_decision_chain.invoke(routing_input)
+                decision = decision_raw.strip().upper()
+                logger.info(f"Orchestrator decision for '{user_message}' (with history): '{decision_raw.strip()}' -> '{decision}'")
+
+                valid_decisions = {'RAG', 'OPENAPI', 'GENERAL_KNOWLEDGE'}
+                if decision not in valid_decisions:
+                    logger.warning(f"Orchestrator returned an invalid decision '{decision}'. Forcing to GENERAL_KNOWLEDGE.")
+                    decision = 'GENERAL_KNOWLEDGE'
+
+            except Exception as e:
+                logger.error(f"Error during orchestrator routing decision for '{user_message}': {e}", exc_info=True)
+                decision = 'GENERAL_KNOWLEDGE'
+
+        if decision == 'RAG' and rag_agent_client:
+            logger.info(f"Routing query to RAG Agent: '{user_message}'")
+            rag_adk_session_id = agent_sessions[session_id].get("rag_adk_session_id")
+
+            if not rag_adk_session_id and adk_session_service:
+                try:
+                    logger.info(f"Creating new ADK session for RAG agent, Flask session {session_id}, user {user_id}")
+                    rag_adk_session = asyncio.run(adk_session_service.create_session(
+                        app_name=RAG_AGENT_ENGINE_ID,
+                        user_id=user_id
+                    ))
+                    rag_adk_session_id = rag_adk_session.id
+                    agent_sessions[session_id]["rag_adk_session_id"] = rag_adk_session_id
+                    logger.info(f"Created ADK session {rag_adk_session_id} for RAG agent.")
+                except Exception as e:
+                    logger.error(f"Failed to create ADK session for RAG agent {user_id}/{session_id}: {e}", exc_info=True)
+                    agent_response = "I couldn't start a session for RAG. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+            if decision == 'RAG':
+                try:
+                    rag_actual_content = ""
+                    response_stream = rag_agent_client.stream_query(
+                        user_id=user_id,
+                        session_id=rag_adk_session_id,
+                        message=user_message,
+                    )
+                    for event in response_stream:
+                        # logger.debug(f"RAG Stream Event: {pprint.pformat(event)}") # Log full event
+                        if isinstance(event, dict):
+                            if "content" in event and "parts" in event["content"]:
+                                for part in event["content"]["parts"]:
+                                    if "text" in part:
+                                        rag_actual_content += part["text"]
+                            if "tool_code" in event: logger.debug(f"RAG tool_code: {event.get('tool_code')}")
+                            if "state_delta" in event: logger.debug(f"RAG state_delta: {event.get('state_delta')}")
+                            if "actions" in event: logger.debug(f"RAG actions: {event.get('actions')}")
+                        else:
+                            logger.warning(f"Received unexpected event type from RAG stream: {type(event)}. Content: {event}")
+                            if isinstance(event, str): rag_actual_content += event
+
+                    agent_response = rag_actual_content.strip()
+
+                    no_meaningful_answer_indicators = [
+                        "The information is not available in the provided documents.",
+                        "I couldn't find any documents",
+                        "I'm sorry, I cannot answer this question based on the provided documents.",
+                        "I am sorry, but I can't answer that question using the documents I have access to.",
+                    ]
+                    found_meaningful_answer = True
+                    if not agent_response:
+                        found_meaningful_answer = False
+                        logger.info("RAG Agent returned empty content.")
+                    else:
+                        for indicator in no_meaningful_answer_indicators:
+                            if indicator.lower() in agent_response.lower():
+                                found_meaningful_answer = False
+                                logger.info(f"RAG Agent response contained no meaningful answer indicator: '{indicator}'.")
+                                break
+                    
+                    if not found_meaningful_answer:
+                        logger.info(f"RAG Agent did not provide a substantive answer. Falling back to general knowledge for '{user_message}'.")
+                        decision = 'GENERAL_KNOWLEDGE'
+                    else:
+                        logger.info(f"RAG Agent successfully answered. Response: '{agent_response[:100]}...'")
+
+                except Exception as e:
+                    logger.error(f"Error querying RAG Agent for '{user_message}' (ADK Session: {rag_adk_session_id}): {e}", exc_info=True)
+                    agent_response = "I encountered an error while retrieving information from the documents. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+
+        if decision == 'OPENAPI' and openapi_agent_client:
+            logger.info(f"Routing query to OpenAPI Agent: '{user_message}'")
+            openapi_adk_session_id = agent_sessions[session_id].get("openapi_adk_session_id")
+            if not openapi_adk_session_id and adk_session_service:
+                 try:
+                    logger.info(f"Creating new ADK session for OpenAPI agent, Flask session {session_id}, user {user_id}")
+                    openapi_adk_session = asyncio.run(adk_session_service.create_session(
+                        app_name=OPENAPI_AGENT_ENGINE_ID,
+                        user_id=user_id
+                    ))
+                    openapi_adk_session_id = openapi_adk_session.id
+                    agent_sessions[session_id]["openapi_adk_session_id"] = openapi_adk_session_id
+                    logger.info(f"Created ADK session {openapi_adk_session_id} for OpenAPI agent.")
+                 except Exception as e:
+                    logger.error(f"Failed to create ADK session for OpenAPI agent {user_id}/{session_id}: {e}", exc_info=True)
+                    agent_response = "I couldn't start a session for the OpenAPI service. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+            if decision == 'OPENAPI':
+                try:
+                    openapi_actual_content = ""
+                    response_stream = openapi_agent_client.stream_query(
+                        user_id=user_id,
+                        session_id=openapi_adk_session_id,
+                        message=user_message,
+                    )
+                    for event in response_stream:
+                        # logger.debug(f"OpenAPI Stream Event: {pprint.pformat(event)}") # Log full event
+                        if isinstance(event, dict):
+                            if "content" in event and "parts" in event["content"]:
+                                for part in event["content"]["parts"]:
+                                    if "text" in part:
+                                        openapi_actual_content += part["text"]
+                            
+                            if "tool_outputs" in event and isinstance(event["tool_outputs"], list):
+                                for output in event["tool_outputs"]:
+                                    if "data" in output and output["data"] is not None:
+                                        try:
+                                            formatted_output = json.dumps(output["data"], indent=2)
+                                            openapi_actual_content += f"\n```json\n{formatted_output}\n```\n"
+                                        except (json.JSONDecodeError, TypeError):
+                                            openapi_actual_content += f"\nTool Output: {str(output['data'])}\n"
+
+                            if "tool_code" in event: logger.debug(f"OpenAPI tool_code: {event.get('tool_code')}")
+                            if "state_delta" in event: logger.debug(f"OpenAPI state_delta: {event.get('state_delta')}")
+                            if "actions" in event: logger.debug(f"OpenAPI actions: {event.get('actions')}")
+                        else:
+                            logger.warning(f"Received unexpected event type from OpenAPI stream: {type(event)}. Content: {event}")
+                            if isinstance(event, str): openapi_actual_content += event
+
+                    agent_response = openapi_actual_content.strip()
+                    
+                    logger.debug(f"Final OpenAPI actual content before return: \n{agent_response}") # Log final content
+
+                    if not agent_response:
+                        logger.warning(f"OpenAPI Agent returned empty content for '{user_message}'. Falling back to general knowledge.")
+                        decision = 'GENERAL_KNOWLEDGE'
+                    else:
+                        logger.info(f"OpenAPI Agent successfully answered. Response: '{agent_response[:100]}...'")
+
+                except Exception as e:
+                    logger.error(f"Error querying OpenAPI Agent for '{user_message}' (ADK Session: {openapi_adk_session_id}): {e}", exc_info=True)
+                    agent_response = "I encountered an error while interacting with the OpenAPI service. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+        if decision == 'GENERAL_KNOWLEDGE':
+            logger.info(f"Routing query to General Knowledge LLM: '{user_message}'")
+            messages_for_gk = chat_history + [HumanMessage(content=user_message)]
+
+            cleaned_messages_for_gk = []
+            for i, msg in enumerate(messages_for_gk):
+                if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)) and msg.content is not None and msg.content.strip() != "":
+                    cleaned_messages_for_gk.append(msg)
+                else:
+                    logger.warning(f"Skipping empty or invalid message type in history for GK chain at index {i}: {type(msg)} / Content: {msg.content}")
+
+            try:
+                if general_knowledge_chain is None:
+                    raise Exception("General knowledge chain is not initialized.")
+                
+                gk_response = general_knowledge_chain.invoke({"query": user_message, "chat_history": cleaned_messages_for_gk})
+                
+                if gk_response and "I'm sorry, I don't have enough general knowledge" not in gk_response:
+                    agent_response = gk_response
+                    logger.info(f"General knowledge LLM provided an answer. Response: '{agent_response[:100]}...'")
+                else:
+                    agent_response = "I'm sorry, I don't have enough general knowledge to answer that specific question right now, and I couldn't find relevant information in specialized systems."
+                    logger.info(f"General knowledge LLM provided a non-substantive or fallback response for '{user_message}'.")
+            except Exception as e:
+                logger.error(f"Error querying General Knowledge LLM for '{user_message}': {e}", exc_info=True)
+                agent_response = "I encountered an error while trying to use my general knowledge."
         
-        # Add the complete turn (user input + model response) to session history.
-        current_memory.save_context({"input": user_query}, {"output": final_response}) 
-        
-        response_data = {"status": "success", "response": final_response, "session_id": session_id}
+        if not agent_response.strip():
+            agent_response = "I apologize, but I couldn't provide a specific answer for that query at this time. It might be outside my current capabilities or require more context."
+            logger.warning(f"All agent paths and general knowledge failed for '{user_message}'. Returning generic fallback.")
+
+
+        current_memory.save_context({"input": user_message}, {"output": agent_response})
+            
+        response_data = {"status": "success", "response": agent_response, "session_id": session_id}
         flask_response = jsonify(response_data)
         flask_response.headers['X-Session-ID'] = session_id
         return flask_response, 200
-        
-    except Exception as e:
-        logger.exception(f"An error occurred while processing the request for query '{user_query}' (Session: {session_id}):")
-        error_message = str(e)
-        # Attempt to add error message to history if possible, using save_context
-        if session_id in agent_sessions:
-            current_memory.save_context({"input": user_query}, {"output": f"Error: {error_message}"})
-        return jsonify({"status": "error", "message": error_message}), 500
 
-@app.route('/api/documents/upload', methods=['POST'])
+    except Exception as e:
+        logger.exception(f"An unhandled critical error occurred in bot_chat endpoint for query '{user_message}' (Session: {session_id}):")
+        try:
+            req_info = f"Headers: {request.headers}, JSON Data: {request.get_json(silent=True)}"
+        except Exception:
+            req_info = "Could not parse request data."
+
+        return jsonify({"status": "error", "message": f"An internal error occurred: {e}. Debug info: {req_info}"}), 500
+
+
+@app.route("/api/documents/upload", methods=["POST"])
 def upload_document_endpoint():
     """
     Dedicated endpoint for uploading documents via HTTP POST to the Vertex AI RAG Corpus.
+    Delegates the actual upload logic to document_storage_utils.
     """
-    session_id = request.headers.get('X-Session-ID') or request.form.get('session_id')
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        logger.info(f"Generated new session ID for upload.")
-    else:
-        logger.info(f"Using existing session ID for upload: {session_id}.")
-
-    # user_id is not directly used for upload_file to corpus, but good to have if needed for logging/auditing
-    # user_id = request.form.get('user_id', 'default_user') 
-
     if 'file' not in request.files:
-        logger.warning("Invalid document upload request: Missing 'file' part.")
         return jsonify({"status": "error", "message": "Missing 'file' in request."}), 400
-    
+
     uploaded_file = request.files['file']
     if uploaded_file.filename == '':
-        logger.warning("Invalid document upload request: No selected file.")
         return jsonify({"status": "error", "message": "No selected file."}), 400
 
-    temp_upload_dir = DOCUMENT_STORAGE_DIRECTORY # Use global constant
-    os.makedirs(temp_upload_dir, exist_ok=True) # This will create the directory if it doesn't exist
-    
+    os.makedirs(DOCUMENT_STORAGE_DIRECTORY, exist_ok=True)
+
     filename = secure_filename(uploaded_file.filename)
-    temp_file_path = os.path.join(temp_upload_dir, filename)
+    temp_file_path = os.path.join(DOCUMENT_STORAGE_DIRECTORY, filename)
 
     try:
         uploaded_file.save(temp_file_path)
-        logger.info(f"File '{filename}' temporarily saved to '{temp_file_path}'.") 
-
-        # The RAG Engine's rag.upload_file handles PDF parsing and chunking.
-        # We just need to pass the path.
-        # A display name and description are useful for the RAG Corpus.
-        document_display_name = filename
-        document_description = f"Uploaded document: {filename} for session {session_id}" # Or a more generic description
+        logger.info(f"File '{filename}' temporarily saved to '{temp_file_path}'.")
 
         upload_result = document_storage_utils.upload_document_to_rag_corpus(
             document_path=temp_file_path,
-            document_display_name=document_display_name,
-            document_description=document_description
+            document_display_name=filename,
+            document_description=f"Uploaded document: {filename}"
         )
-        
-        doc_id = upload_result.get("rag_file_name") # The RAG file resource name can serve as a unique ID
+
         final_response_message = upload_result.get("output", "Unknown upload result").strip()
 
         if upload_result.get("status") == "success":
-            logger.info(f"Document '{doc_id}' processed for session '{session_id}'. Output: {final_response_message}") 
+            logger.info(f"Document '{filename}' successfully processed for RAG Corpus. Result: {final_response_message}")
             return jsonify({
                 "status": "success",
-                "message": f"File '{filename}' processed successfully. Response: {final_response_message}", 
-                "doc_id": doc_id, # This will be the RAG file resource name
-                "session_id": session_id
+                "message": f"File '{filename}' processed successfully. {final_response_message}",
+                "doc_id": upload_result.get("rag_file_name")
             }), 200
         else:
-            logger.error(f"Failed to process document '{filename}'. Output: {final_response_message}") 
+            logger.error(f"Failed to process document '{filename}'. Result: {final_response_message}")
             return jsonify({"status": "error", "message": f"Failed to process document: {final_response_message}"}), 500
 
     except Exception as e:
-        logger.exception(f"An error occurred during document upload for file '{filename}' (Session: {session_id}):")
+        logger.exception(f"An error occurred during document upload for file '{filename}':")
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-            logger.info(f"Cleaned up temporary file: '{temp_file_path}'.") 
+            logger.info(f"Cleaned up temporary file: '{temp_file_path}'.")
 
-@app.route('/')
-def index():
-    """Renders the main index.html page for the web UI."""
-    return render_template('index.html')
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Provides a simple health check endpoint for the Flask application."""
-    logger.debug("Health check requested.") 
+    logger.debug("Health check requested.")
     return jsonify({"status": "healthy", "message": f"{FLASK_APP_NAME} is running"}), 200
 
-if __name__ == '__main__':
-    model_mode = sys.argv[1].lower() if len(sys.argv) > 1 else "rag_engine" # Defaulting to new mode
-    logger.info(f"Starting application in '{model_mode}' mode.")
+if __name__ == "__main__":
+    perform_preflight_checks()
+    initialize_all_components()
 
     try:
         from gunicorn.app.wsgiapp import WSGIApplication
         from gunicorn.config import Config as GunicornConfig
+        
+        class StandaloneApplication(WSGIApplication):
+            def __init__(self, app_name, options=None):
+                self.options = options or {}
+                self.application = app
+                super().__init__(app_name)
+
+            def load_config(self):
+                config_items = {key: value for key, value in self.options.items()
+                                if key in self.cfg.settings and value is not None}
+                for key, value in config_items.items():
+                    self.cfg.set(key.lower(), value)
+
+            def load(self):
+                logger.info(f"Worker {os.getpid()} starting. Components should be ready.")
+                return self.application
+
+        logger.info("Starting Gunicorn application.")
+        gunicorn_options = {
+            'bind': f"{HOST}:{PORT}",
+            'workers': GUNICORN_WORKERS,
+            'loglevel': LOG_LEVEL.lower(),
+            'timeout': GUNICORN_TIMEOUT,
+            'reload': FLASK_DEBUG
+        }
+        StandaloneApplication("app:app", gunicorn_options).run()
+
     except ImportError:
-        logger.error("Gunicorn not found. Please ensure it's in requirements.txt. Falling back to Flask development server.")
+        logger.warning("Gunicorn not found. Falling back to Flask development server. This is not recommended for production.")
         app.run(host=HOST, port=PORT, debug=FLASK_DEBUG)
-        sys.exit(0)
-
-    class StandaloneApplication(WSGIApplication):
-        def __init__(self, app_name, options=None):
-            self.options = options or {}
-            self.application = app
-            super().__init__(app_name)
-
-        def load_config(self):
-            config_items = {key: value for key, value in self.options.items()
-                            if key in self.cfg.settings and value is not None}
-            for key, value in config_items.items():
-                self.cfg.set(key.lower(), value)
-
-        def load(self):
-            return self.application
-
-    # Initialize RAG components before Gunicorn starts workers
-    initialize_rag_components() 
-    logger.info("RAG components ready for requests (main process)!")
-
-    gunicorn_options = {
-        'bind': f"{HOST}:{PORT}",
-        'workers': GUNICORN_WORKERS,
-        'loglevel': LOG_LEVEL.lower(),
-        'timeout': GUNICORN_TIMEOUT,
-        'reload': FLASK_DEBUG
-    }
-    
-    StandaloneApplication("app:app", gunicorn_options).run()
+    except Exception as e:
+        logger.critical(f"Failed to start application: {e}", exc_info=True)
+        sys.exit(1)
