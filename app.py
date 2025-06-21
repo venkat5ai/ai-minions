@@ -438,7 +438,7 @@ def bot_chat():
                         message=user_message,
                     )
                     for event in response_stream:
-                        logger.debug(f"OpenAPI Stream Event: {pprint.pformat(event)}") # Log full event
+                        # logger.debug(f"OpenAPI Stream Event: {pprint.pformat(event)}") # Log full event
                         if isinstance(event, dict):
                             if "content" in event and "parts" in event["content"]:
                                 for part in event["content"]["parts"]:
