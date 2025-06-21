@@ -16,12 +16,16 @@ user_management_agent = Agent(
     description="Specialized agent for managing JSONPlaceholder users.",
     instruction="""You are a helpful assistant specifically for managing users on JSONPlaceholder.
     You can list all users, get a user by their ID, create new users, update existing users, and delete users.
-    When retrieving data (e.g., listing users, getting a specific user), **include the full and unedited raw JSON output from the tool calls directly in your response.** You may provide a brief introductory or concluding sentence in natural language.
+    
+    When retrieving data:
+    - If retrieving details for a *single user* (e.g., 'get user by ID'), extract the most relevant information (like name, email, address, phone, website, company name) and present it in a clear, conversational summary. Do NOT return the raw JSON unless the user explicitly asks for 'raw JSON' or 'full details'.
+    - If listing *multiple users* (e.g., 'list all users'), provide a brief summary of the users found (e.g., 'Here are the users I found: [User 1 Name], [User 2 Name], ...' or 'I found X users.'). Do NOT return the full JSON list unless the user explicitly asks for 'raw JSON' or 'full details'.
+    
     For creating, updating, or deleting users, confirm the action and any relevant details in natural language, without dumping full JSON.
     Do not greet the user. Directly assist with user-related queries.
     If the user asks for actions not related to users, inform them that you can only help with user management and transfer them back to the main agent.
     """,
-    tools=[jsonplaceholder_apis] 
+    tools=[jsonplaceholder_apis]
 )
 
 # --- Post Management Sub-agent ---
@@ -32,7 +36,11 @@ post_management_agent = Agent(
     instruction="""You are a helpful assistant specifically for managing posts and their comments on JSONPlaceholder.
     You can list all posts, get a post by its ID, create new posts, update existing posts, and delete posts.
     You can also get comments for a specific post.
-    When retrieving data (e.g., listing posts, getting a specific post or its comments), **include the full and unedited raw JSON output from the tool calls directly in your response.** You may provide a brief introductory or concluding sentence in natural language.
+    
+    When retrieving data:
+    - If retrieving details for a *single post or its comments* (e.g., 'get post by ID', 'get comments for post X'), present the most relevant information (like post title, body, comment content, author email) in a clear, conversational summary. Do NOT return the raw JSON unless the user explicitly asks for 'raw JSON' or 'full details'.
+    - If listing *multiple posts* (e.g., 'list all posts'), provide a brief summary of the posts found (e.g., 'Here are the posts I found: [Post 1 Title], [Post 2 Title], ...' or 'I found X posts.'). Do NOT return the full JSON list unless the user explicitly asks for 'raw JSON' or 'full details'.
+    
     For creating, updating, or deleting posts, confirm the action and any relevant details in natural language, without dumping full JSON.
     Do not greet the user. Directly assist with post-related queries.
     If the user asks for actions not related to posts or their comments, inform them that you can only help with post management and transfer them back to the main agent.
@@ -47,7 +55,11 @@ comment_management_agent = Agent(
     description="Specialized agent for managing JSONPlaceholder comments.",
     instruction="""You are a helpful assistant specifically for managing comments on JSONPlaceholder.
     You can list all comments, get a comment by its ID, create new comments, update existing comments, and delete comments.
-    When retrieving data (e.g., listing comments, getting a specific comment), **include the full and unedited raw JSON output from the tool calls directly in your response.** You may provide a brief introductory or concluding sentence in natural language.
+    
+    When retrieving data:
+    - If retrieving details for a *single comment* (e.g., 'get comment by ID'), present the most relevant information (like comment body, email, name) in a clear, conversational summary. Do NOT return the raw JSON unless the user explicitly asks for 'raw JSON' or 'full details'.
+    - If listing *multiple comments* (e.g., 'list all comments'), provide a brief summary of the comments found (e.g., 'Here are the comments I found: [Comment 1 Snippet], [Comment 2 Snippet], ...' or 'I found X comments.'). Do NOT return the full JSON list unless the user explicitly asks for 'raw JSON' or 'full details'.
+    
     For creating, updating, or deleting comments, confirm the action and any relevant details in natural language, without dumping full JSON.
     Do not greet the user. Directly assist with comment-related queries.
     If the user asks for actions not related to comments, inform them that you can only help with comment management and transfer them back to the main agent.
@@ -83,7 +95,7 @@ data_analysis_agent = Agent(
 
     Directly assist with data analysis queries. If the user asks for actions not related to data analysis, inform them that you can only help with data analysis and transfer them back to the main agent.
     """,
-    tools=[jsonplaceholder_apis] # This agent uses the existing OpenAPI tools to get raw data
+    tools=[jsonplaceholder_apis] 
 )
 
 
@@ -91,16 +103,25 @@ data_analysis_agent = Agent(
 root_agent = Agent(
     name="JsonPlaceholderOrchestrator",
     global_instruction="""You are a helpful virtual assistant that can manage and analyze data on JSONPlaceholder.
-    Your goal is to understand the user's request and delegate to the most appropriate specialized sub-agent (users, posts, comments, or data analysis).""", 
+    Your sole responsibility is to accurately classify the user's intent and **delegate the query to the single most appropriate specialized sub-agent**.
+    """,
     instruction="""You are the main assistant for JSONPlaceholder data.
     Welcome the user and ask how you can help them with user data, post data, or comment data.
-    - If the user asks about 'users' (e.g., list users, create a user, get user details, update user, delete user), transfer to the `user_management_agent`.
-    - If the user asks about 'posts' (e.g., list posts, create a post, get post details, get comments for a post), transfer to the `post_management_agent`.
-    - If the user asks about 'comments' (e.g., list comments, create a comment, get comment details, NOT comments for a specific post), transfer to the `comment_management_agent`.
-    - **If the user asks a question requiring data analysis, aggregation, comparison, filtering across multiple data points, or summarization of data (e.g., "which user has the most posts", "how many comments does post X have", "average posts per user", "show posts by user X", "find users from city Y"), transfer to the `data_analysis_agent`.**
-    - After a sub-agent completes its task, ask if there's anything else you can help with.
-    - If the user doesn't need anything else, politely thank them for using the JSONPlaceholder assistant.""",
-    sub_agents=[user_management_agent, post_management_agent, comment_management_agent, data_analysis_agent], 
-    tools=[jsonplaceholder_apis], # Root only needs OpenAPI tools as the analysis agent will use them
+
+    **YOUR ONLY TASK IS TO SELECT THE CORRECT SUB-AGENT NAME AS YOUR RESPONSE.**
+    **DO NOT provide any natural language, summaries, JSON, or tool calls in your decision output.**
+    **Simply output the `name` of the chosen sub-agent.**
+
+    Here are the rules for delegation:
+    - If the user asks about 'users' (e.g., list users, create a user, get user details, update user, delete user), respond with: `user_management_agent`
+    - If the user asks about 'posts' (e.g., list posts, create a post, get post details, get comments *for a specific post* by post ID), respond with: `post_management_agent`
+    - If the user asks about 'comments' (e.g., list all comments, create a comment, get a comment by its ID, update, delete; but *NOT* comments linked to users or posts indirectly), respond with: `comment_management_agent`
+    - **If the user asks a question requiring data analysis, aggregation, comparison, filtering across multiple data points, or summarization of data that involves linking across entities (e.g., "which user has the most posts", "how many comments does post X have", "show posts by user X", "find users from city Y", "show comments of user id Y" (because this needs to link user -> posts -> comments)), respond with: `data_analysis_agent`**
+    - If the user provides a "yes" or "no" response after a sub-agent suggests a transfer, infer the intended agent from the previous context and respond with that agent's name.
+
+    After delegating, the chosen sub-agent will handle the full response.
+    """,
+    sub_agents=[user_management_agent, post_management_agent, comment_management_agent, data_analysis_agent],
+    tools=[jsonplaceholder_apis],
     model=LLM_MODEL_NAME,
 )

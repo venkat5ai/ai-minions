@@ -28,5 +28,3 @@ jsonplaceholder_apis = OpenAPIToolset(
     auth_scheme=auth_scheme,
     auth_credential=auth_credential
 )
-
-# Removed custom data analysis tools and data_analysis_tools list
