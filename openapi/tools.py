@@ -1,8 +1,9 @@
 # tools.py
 import os
 import json
+# Removed imports for requests, Counter, and langchain.tools
+
 from google.adk.tools.openapi_tool.openapi_spec_parser.openapi_toolset import OpenAPIToolset
-# from google.adk.tools.openapi_tool.auth.auth_helpers import NoAuthScheme, NoAuthCredential
 from google.adk.tools.openapi_tool.auth.auth_helpers import token_to_scheme_credential
 
 
@@ -16,15 +17,16 @@ with open(OPENAPI_SPEC_FILE, 'r') as f:
     jsonplaceholder_spec = json.load(f)
 
 # Common authentication (none for JSONPlaceholder)
-auth_scheme = None # NoAuthScheme()
-auth_credential = None # NoAuthCredential()
+auth_scheme = None 
+auth_credential = None 
 
-# --- User API Toolset ---
-# Filter operations that start with 'listUsers', 'getUser', 'createUser', 'updateUser', 'deleteUser'
+# --- JSONPlaceholder OpenAPI API Toolset ---
+# This toolset exposes the API operations defined in jsonplaceholder_spec.json
 jsonplaceholder_apis = OpenAPIToolset(
     spec_str=json.dumps(jsonplaceholder_spec),
     spec_str_type="json",
-    # tool_name="jsonplaceholder-users-api",
     auth_scheme=auth_scheme,
     auth_credential=auth_credential
 )
+
+# Removed custom data analysis tools and data_analysis_tools list
