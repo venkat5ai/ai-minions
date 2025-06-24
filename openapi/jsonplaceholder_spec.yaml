@@ -18,7 +18,31 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object # Define post structure if needed, or keep generic
+                  $ref: '#/components/schemas/Post'
+    post:
+      summary: Create a new post
+      operationId: createPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string}
+                body: {type: string}
+                userId: {type: integer}
+              required:
+                - title
+                - body
+                - userId
+      responses:
+        "201":
+          description: Post created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
   /posts/{postId}:
     get:
       summary: Get a specific post by ID
@@ -29,13 +53,50 @@ paths:
           required: true
           schema:
             type: integer
+          description: ID of the post to retrieve
       responses:
         "200":
           description: A single post
           content:
             application/json:
               schema:
-                type: object # Define post structure if needed
+                $ref: '#/components/schemas/Post'
+    put:
+      summary: Update an existing post by ID
+      operationId: updatePost
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the post to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Post'
+      responses:
+        "200":
+          description: Post updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+    delete:
+      summary: Delete a post by ID
+      operationId: deletePost
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the post to delete
+      responses:
+        "200":
+          description: Post deleted successfully
   /users:
     get:
       summary: Get all users
@@ -43,6 +104,36 @@ paths:
       responses:
         "200":
           description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      summary: Create a new user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                username: {type: string}
+                email: {type: string, format: email}
+              required:
+                - name
+                - username
+                - email
+      responses:
+        "201":
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
   /users/{userId}:
     get:
       summary: Get a specific user by ID
@@ -53,16 +144,96 @@ paths:
           required: true
           schema:
             type: integer
+          description: ID of the user to retrieve
       responses:
         "200":
           description: A single user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    put:
+      summary: Update an existing user by ID
+      operationId: updateUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the user to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        "200":
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      summary: Delete a user by ID
+      operationId: deleteUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the user to delete
+      responses:
+        "200":
+          description: User deleted successfully
   /comments:
     get:
       summary: Get all comments
       operationId: getAllComments
+      parameters:
+        - name: postId
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter comments by post ID
       responses:
         "200":
           description: A list of comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+    post:
+      summary: Create a new comment
+      operationId: createComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                postId: {type: integer}
+                name: {type: string}
+                email: {type: string, format: email}
+                body: {type: string}
+              required:
+                - postId
+                - name
+                - email
+                - body
+      responses:
+        "201":
+          description: Comment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
   /comments/{commentId}:
     get:
       summary: Get a specific comment by ID
@@ -73,9 +244,50 @@ paths:
           required: true
           schema:
             type: integer
+          description: ID of the comment to retrieve
       responses:
         "200":
           description: A single comment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+    put:
+      summary: Update an existing comment by ID
+      operationId: updateComment
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the comment to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Comment'
+      responses:
+        "200":
+          description: Comment updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+    delete:
+      summary: Delete a comment by ID
+      operationId: deleteComment
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of the comment to delete
+      responses:
+        "200":
+          description: Comment deleted successfully
   /posts/{postId}/comments:
     get:
       summary: Get comments for a specific post
@@ -86,6 +298,115 @@ paths:
           required: true
           schema:
             type: integer
+          description: ID of the post to retrieve comments for
       responses:
         "200":
-          description: A list of comments for the post
+          description: A list of comments for the specified post
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+          description: Unique identifier for the user.
+        name:
+          type: string
+          description: Full name of the user.
+        username:
+          type: string
+          description: Unique username.
+        email:
+          type: string
+          format: email
+          description: User's email address.
+        address:
+          type: object
+          properties:
+            street: {type: string}
+            suite: {type: string}
+            city: {type: string}
+            zipcode: {type: string}
+            geo:
+              type: object
+              properties:
+                lat: {type: string}
+                lng: {type: string}
+          description: User's address details.
+        phone:
+          type: string
+          description: User's phone number.
+        website:
+          type: string
+          description: User's website.
+        company:
+          type: object
+          properties:
+            name: {type: string}
+            catchPhrase: {type: string}
+            bs: {type: string}
+          description: User's company details.
+      required:
+        - id
+        - name
+        - username
+        - email
+
+    Post:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int32
+          description: The ID of the user who created the post.
+        id:
+          type: integer
+          format: int32
+          description: Unique identifier for the post.
+        title:
+          type: string
+          description: Title of the post.
+        body:
+          type: string
+          description: Content of the post.
+      required:
+        - userId
+        - id
+        - title
+        - body
+
+    Comment:
+      type: object
+      properties:
+        postId:
+          type: integer
+          format: int32
+          description: The ID of the post the comment belongs to.
+        id:
+          type: integer
+          format: int32
+          description: Unique identifier for the comment.
+        name:
+          type: string
+          description: Name of the comment author.
+        email:
+          type: string
+          format: email
+          description: Email of the comment author.
+        body:
+          type: string
+          description: Content of the comment.
+      required:
+        - postId
+        - id
+        - name
+        - email
+        - body

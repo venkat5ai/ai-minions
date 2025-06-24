@@ -12,7 +12,7 @@ ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
     POETRY_HOME=/opt/poetry \
     POETRY_VIRTUALENVS_CREATE=false \
     POETRY_VIRTUALENVS_IN_PROJECT=false \
-    PATH="/root/.local/bin:/opt/poetry/bin:$PATH"
+    PATH="/root/.local/bin:/opt/poetry/bin:/root/.apigeecli/bin:$PATH"
 
 # Install system packages
 RUN apk update && \
@@ -29,13 +29,36 @@ RUN apk update && \
     libffi-dev \
     openssl-dev \
     make \
-    curl && \
+    curl \
+    jq \
+    openssh-client \
+    unzip && \
     # Install pipx
     python3 -m pip install --no-cache-dir --break-system-packages pipx && \
     # Install Poetry using pipx's python module directly
     python3 -m pipx install poetry==2.1.3 && \
     # Clean up
     rm -rf /var/cache/apk/*
+
+# Install apigeecli with explicit version and path handling
+RUN mkdir -p /root/.apigeecli/bin && \
+    cd /tmp && \
+    curl -sLO https://github.com/apigee/apigeecli/releases/download/v2.12.0/apigeecli_v2.12.0_Linux_x86_64.zip && \
+    unzip apigeecli_v2.12.0_Linux_x86_64.zip && \
+    mv apigeecli_v2.12.0_Linux_x86_64/apigeecli /root/.apigeecli/bin/ && \
+    chmod +x /root/.apigeecli/bin/apigeecli && \
+    # Install additional Python packages
+    python3 -m pip install --no-cache-dir --break-system-packages \
+    google-cloud-secret-manager \
+    google-cloud-aiplatform \
+    google-api-python-client && \
+    # Clean up
+    rm -rf apigeecli_v2.12.0_Linux_x86_64* /tmp/apigeecli*
+
+# Verify installations
+RUN apigeecli --version && \
+    gcloud --version && \
+    jq --version
 
 # Set the default shell to bash
 SHELL ["/bin/bash", "-c"]

@@ -406,6 +406,7 @@ ME_ENDPOINT_ID=your_matching_engine_endpoint_id
 
 ### Build the Docker Image
 ```powershell
+cd ai-minions/
 docker build -t venkat5ai/ai-assistant:1.0 -t venkat5ai/ai-assistant:latest .
 ```
 
@@ -426,6 +427,13 @@ docker run --name ai-assistant --rm -it -p 3010:3010 -v ".:/app" -v "%GOOGLE_APP
 ### Access the Container Shell (if already running)
 ```powershell
 docker exec -it ai-assistant sh
+```
+
+### Build and run cloud-utils Docker Image
+```powershell
+cd ai-minions/
+docker build --no-cache -t venkat5ai/cloud-utils:latest -f utils/Dockerfile-utils .
+docker run --name cloud-utils --rm -it -v ".:/app" -v "%GOOGLE_APPLICATION_CREDENTIALS%":/tmp/keys.json -e GOOGLE_APPLICATION_CREDENTIALS="/tmp/keys.json" --entrypoint /bin/bash  venkat5ai/cloud-utils
 ```
 
 ---
