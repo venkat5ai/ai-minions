@@ -1,0 +1,34 @@
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# Docker
+# .dockerignore
+# Dockerfile*  # Optional: Exclude Dockerfile if not needed in final image
+# docker-compose*  # Optional: Expose compose files if not needed
+
+# Python
+**__pycache__/
+*.py[cod]
+*$py.class
+
+# Other common ignores
+# .env
+*.log
+*.tmp
+
+__pycache__
+.git
+.vscode
+venv
+tests
+Dockerfile
+docker-compose.yml
+*.md
+
+faiss_indexes/
+data/
+upload/
+*.log.txt
+keys.json

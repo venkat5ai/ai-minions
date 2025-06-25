@@ -19,7 +19,7 @@ from dotenv import set_key
 import vertexai
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
-from openapi.agent import root_agent # Changed import
+from pricesapi.agent import prices_comparison_agent
 
 
 def main(argv: list[str]) -> None:
@@ -52,23 +52,23 @@ def main(argv: list[str]) -> None:
         staging_bucket=STAGING_BUCKET,
     )
 
-    app = AdkApp(agent=root_agent, enable_tracing=False)
+    app = AdkApp(agent=prices_comparison_agent, enable_tracing=False)
 
     remote_agent = agent_engines.create(
         app,
         requirements="/app/requirements.txt",
-        display_name="OpenAPI Agent",
-        description="OpenAPI Agent that provides an interface to interact with OpenAPI external app end points.",
+        display_name="PricesComparision Agent",
+        description="PricesComparision Agent that makes API calls and presents prices and compare them.",
     )
 
     print(f"Created remote agent: {remote_agent.resource_name}")
-    print(f"Updating .env file with OPENAPI_AGENT_ENGINE_ID={remote_agent.resource_name}")
+    print(f"Updating .env file with PRICES_COMPARE_AGENT_ENGINE_ID={remote_agent.resource_name}")
     
     try:
-        set_key(ENV_FILE_PATH, "OPENAPI_AGENT_ENGINE_ID", remote_agent.resource_name)
-        print(f"Updated OPENAPI_AGENT_ENGINE_ID in {ENV_FILE_PATH} to {remote_agent.resource_name}")
+        set_key(ENV_FILE_PATH, "PRICES_COMPARE_AGENT_ENGINE_ID", remote_agent.resource_name)
+        print(f"Updated PRICES_COMPARE_AGENT_ENGINE_ID in {ENV_FILE_PATH} to {remote_agent.resource_name}")
     except Exception as e:
-        print(f"Error updating OPENAPI_AGENT_ENGINE_ID in {ENV_FILE_PATH} file: {e}")
+        print(f"Error updating PRICES_COMPARE_AGENT_ENGINE_ID in {ENV_FILE_PATH} file: {e}")
 
 
 if __name__ == "__main__":

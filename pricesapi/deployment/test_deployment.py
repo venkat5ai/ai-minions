@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import vertexai
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
-from openapi.agent import root_agent # Changed import
+from pricesapi.agent import prices_comparison_agent
 
 def main(argv: list[str]) -> None:
 
@@ -27,7 +27,7 @@ def main(argv: list[str]) -> None:
     PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
     LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
     STAGING_BUCKET = os.environ["GOOGLE_CLOUD_STORAGE_BUCKET"]
-    AGENT_ENGINE_ID = os.environ["AGENT_ENGINE_ID"]
+    PRICES_COMPARE_AGENT_ENGINE_ID = os.environ["PRICES_COMPARE_AGENT_ENGINE_ID"]
 
     if not PROJECT:
         print("Missing required environment variable: GOOGLE_CLOUD_PROJECT")
@@ -38,14 +38,14 @@ def main(argv: list[str]) -> None:
     elif not STAGING_BUCKET:
         print("Missing required environment variable: GOOGLE_CLOUD_STORAGE_BUCKET")
         return
-    elif not AGENT_ENGINE_ID:
-        print("Missing required environment variable: AGENT_ENGINE_ID")
+    elif not PRICES_COMPARE_AGENT_ENGINE_ID:
+        print("Missing required environment variable: PRICES_COMPARE_AGENT_ENGINE_ID")
         return
 
     print(f"PROJECT: {PROJECT}")
     print(f"LOCATION: {LOCATION}")
     print(f"STAGING_BUCKET: {STAGING_BUCKET}")
-    print(f"AGENT_ENGINE_ID: {AGENT_ENGINE_ID}")
+    print(f"PRICES_COMPARE_AGENT_ENGINE_ID: {PRICES_COMPARE_AGENT_ENGINE_ID}")
 
     vertexai.init(
         project=PROJECT,
@@ -54,7 +54,7 @@ def main(argv: list[str]) -> None:
     )
 
     user_id="user"
-    agent = agent_engines.get(AGENT_ENGINE_ID)
+    agent = agent_engines.get(PRICES_COMPARE_AGENT_ENGINE_ID)
     session = agent.create_session(user_id=user_id)
     print("Type 'quit' to exit.")
     while True:
