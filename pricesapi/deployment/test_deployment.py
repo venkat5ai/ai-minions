@@ -21,12 +21,14 @@ from vertexai.preview.reasoning_engines import AdkApp
 from pricesapi.agent import prices_comparison_agent
 
 def main(argv: list[str]) -> None:
-
-    load_dotenv()
+    
+    ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    # Load environment variables from the specified .env file
+    load_dotenv(dotenv_path=ENV_FILE_PATH)
 
     PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
     LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
-    STAGING_BUCKET = os.environ["GOOGLE_CLOUD_STORAGE_BUCKET"]
+    STAGING_BUCKET = os.environ["STAGING_BUCKET"]
     PRICES_COMPARE_AGENT_ENGINE_ID = os.environ["PRICES_COMPARE_AGENT_ENGINE_ID"]
 
     if not PROJECT:
