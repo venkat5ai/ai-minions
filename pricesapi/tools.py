@@ -26,7 +26,7 @@ if PRICES_COMPARISON_API_KEY == "YOUR_API_KEY_HERE":
     print("WARNING: PRICES_COMPARISON_API_KEY not set in environment. Please set it or replace 'YOUR_API_KEY_HERE'.")
 
 # The token_to_scheme_credential function likely expects the string representation
-auth_scheme, auth_credential = token_to_scheme_credential("apikey", "header", "Authorization", PRICES_COMPARISON_API_KEY)
+auth_scheme, auth_credential = token_to_scheme_credential("apikey", "header", "Authorization", f"Bearer {PRICES_COMPARISON_API_KEY}")
 
 prices_comparison_apis = OpenAPIToolset(
     spec_str=json.dumps(prices_comparison_spec),
