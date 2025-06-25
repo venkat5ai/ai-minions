@@ -1,6 +1,7 @@
 # prices_comparison_agent_folder/prices_comparison_types.py
 from typing import List, Optional
-from pydantic import BaseModel, Field
+# Import RootModel in addition to BaseModel and Field
+from pydantic import BaseModel, Field, RootModel
 
 class ProductListing(BaseModel):
     """Represents a product listing from the Prices Comparison API."""
@@ -13,6 +14,8 @@ class ProductListing(BaseModel):
     link: str = Field(description="URL to the product page.")
     img: Optional[str] = Field(None, description="URL to the product image.")
 
-class PriceComparisonResponse(BaseModel):
+# Modify PriceComparisonResponse to inherit from RootModel
+class PriceComparisonResponse(RootModel[List[ProductListing]]):
     """Represents the full response from the Prices Comparison API, which is an array of ProductListing objects."""
-    __root__: List[ProductListing]
+    # No need for __root__: List[ProductListing] here anymore
+    pass

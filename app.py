@@ -1,3 +1,4 @@
+# app.py
 import os
 import uuid
 import logging
@@ -40,7 +41,8 @@ from langchain_core.output_parsers import StrOutputParser
 from werkzeug.utils import secure_filename
 
 # NEW: Import agent clients (assuming agent_clients.py exists and provides these)
-from agent_clients import get_rag_agent_client, get_openapi_agent_client
+# IMPORTANT: Updated imports to include prices comparison client
+from agent_clients import get_rag_agent_client, get_jsonplaceholder_agent_client, get_prices_comparison_agent_client
 
 # NEW: Import document storage utilities (assuming document_storage_utils.py exists)
 import document_storage_utils
@@ -56,8 +58,10 @@ logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(name)s - %(levelnam
 logger = logging.getLogger(__name__)
 
 # --- Global Agent/LLM Clients ---
+# IMPORTANT: Added prices_comparison_agent_client
 rag_agent_client = None
-openapi_agent_client = None
+jsonplaceholder_agent_client = None
+prices_comparison_agent_client = None
 adk_session_service = None
 
 # Orchestrator and General Knowledge LLM components
@@ -86,8 +90,10 @@ LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-2.0-flash-001")
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", 0.2))
 
 # Agent Engine IDs are full resource names from .env
-RAG_AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID")
-OPENAPI_AGENT_ENGINE_ID = os.getenv("OPENAPI_AGENT_ENGINE_ID")
+RAG_AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID") # Assuming this is for RAG
+OPENAPI_AGENT_ENGINE_ID = os.getenv("OPENAPI_AGENT_ENGINE_ID") # For JSONPlaceholder
+PRICES_COMPARE_AGENT_ENGINE_ID = os.getenv("PRICES_COMPARE_AGENT_ENGINE_ID") # NEW: For Prices Comparison
+
 
 DOCUMENT_STORAGE_DIRECTORY = os.environ.get("DOCUMENT_STORAGE_DIRECTORY", "/app/data")
 
@@ -110,8 +116,9 @@ def perform_preflight_checks():
         logger.error("GOOGLE_CLOUD_LOCATION is not set. Please set this environment variable.")
         sys.exit(1)
 
-    if not RAG_AGENT_ENGINE_ID and not OPENAPI_AGENT_ENGINE_ID:
-        logger.error("Neither AGENT_ENGINE_ID nor OPENAPI_AGENT_ENGINE_ID is set. At least one agent engine ID is required for agent functionality.")
+    # IMPORTANT: Updated check to ensure at least one agent ID is present
+    if not RAG_AGENT_ENGINE_ID and not OPENAPI_AGENT_ENGINE_ID and not PRICES_COMPARE_AGENT_ENGINE_ID:
+        logger.error("Neither AGENT_ENGINE_ID, OPENAPI_AGENT_ENGINE_ID, nor PRICES_COMPARE_AGENT_ENGINE_ID is set. At least one agent engine ID is required for agent functionality.")
         sys.exit(1)
 
     if not RAG_CORPUS and RAG_AGENT_ENGINE_ID:
@@ -130,7 +137,8 @@ def initialize_all_components():
     Initializes Vertex AI SDK, ADK Session Service, RAG/OpenAPI Agent Engine clients,
     and the LangChain-based orchestrator and general knowledge chains.
     """
-    global rag_agent_client, openapi_agent_client, adk_session_service
+    # IMPORTANT: Updated global statement to include new client
+    global rag_agent_client, jsonplaceholder_agent_client, prices_comparison_agent_client, adk_session_service
     global orchestrator_llm, orchestrator_decision_chain, general_knowledge_llm, general_knowledge_chain
 
     try:
@@ -154,10 +162,16 @@ def initialize_all_components():
         if not rag_agent_client:
             logger.warning("RAG Agent Client could not be initialized. RAG functionality will be unavailable.")
 
-        # Initialize OpenAPI Agent Client (if ID provided)
-        openapi_agent_client = get_openapi_agent_client()
-        if not openapi_agent_client:
-            logger.warning("OpenAPI Agent Client could not be initialized. OpenAPI functionality will be unavailable.")
+        # Initialize JSONPlaceholder OpenAPI Agent Client (if ID provided)
+        jsonplaceholder_agent_client = get_jsonplaceholder_agent_client()
+        if not jsonplaceholder_agent_client:
+            logger.warning("JSONPlaceholder OpenAPI Agent Client could not be initialized. JSONPlaceholder functionality will be unavailable.")
+
+        # NEW: Initialize Prices Comparison Agent Client (if ID provided)
+        prices_comparison_agent_client = get_prices_comparison_agent_client()
+        if not prices_comparison_agent_client:
+            logger.warning("Prices Comparison Agent Client could not be initialized. Prices Comparison functionality will be unavailable.")
+
 
         # Initialize LLM for Orchestrator and General Knowledge
         orchestrator_llm = ChatVertexAI(
@@ -182,14 +196,16 @@ def initialize_all_components():
 
                 Your output MUST be one of the following:
                 - 'RAG'
-                - 'OPENAPI'
+                - 'JSONPLACEHOLDER_API'
+                - 'PRICES_COMPARISON_API' # NEW: Added Prices Comparison API decision
                 - 'GENERAL_KNOWLEDGE'
 
                 Here are the rules for choosing the keyword:
 
                 1.  'RAG': Choose this if the user's query is about existing documents, policies, or facts found in a knowledge base (e.g., "What are the rules for residents?", "Tell me about community events", "Where is the nearest post office?").
-                2.  'OPENAPI': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments, or requires analysis of data from these resources. This includes listing, creating, getting details, updating, deleting, or performing analysis (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10", "Which user has the most posts?", "How many comments does post 3 have?").
-                3.  'GENERAL_KNOWLEDGE': Choose this for any other type of query. This includes:
+                2.  'JSONPLACEHOLDER_API': Choose this if the user's query explicitly interacts with JSONPlaceholder API resources: users, posts, or comments, or requires analysis of data from these resources. This includes listing, creating, getting details, updating, deleting, or performing analysis (e.g., "List all users", "Create a new post", "Get comments for post ID 5", "Delete user 10", "Which user has the most posts?", "How many comments does post 3 have?").
+                3.  'PRICES_COMPARISON_API': Choose this if the user's query is about comparing prices of products or finding product listings (e.g., "compare prices for iPhone", "find price for Samsung TV", "show me listings for headphones"). # NEW: Added rule for Prices Comparison API
+                4.  'GENERAL_KNOWLEDGE': Choose this for any other type of query. This includes:
                     - General questions (e.g., "What is the capital of France?", "Who is the president?").
                     - Greetings, chit-chat, or conversational filler (e.g., "Hello", "How are you?", "Tell me a joke").
                     - ANY arithmetic, calculations, logical reasoning, or math problems, no matter how simple or complex (e.g., "What is 2 + 2?", "Calculate 12345 * 67890", "What is the square root of 81?", "Solve for X: 2X + 5 = 11"). You *must not* solve these; only route them.
@@ -202,13 +218,19 @@ def initialize_all_components():
                 Output: RAG
 
                 User: "List all users"
-                Output: OPENAPI
+                Output: JSONPLACEHOLDER_API
 
                 User: "Create a new post with title 'My Title' and body 'Hello World'"
-                Output: OPENAPI
-                
+                Output: JSONPLACEHOLDER_API
+
                 User: "Which user has the most posts?"
-                Output: OPENAPI
+                Output: JSONPLACEHOLDER_API
+
+                User: "compare prices for iPhone" # NEW Example
+                Output: PRICES_COMPARISON_API
+
+                User: "find price for Samsung TV" # NEW Example
+                Output: PRICES_COMPARISON_API
 
                 User: "What is the capital of France?"
                 Output: GENERAL_KNOWLEDGE
@@ -277,7 +299,7 @@ def index():
 @app.route("/api/bot", methods=["POST"])
 def bot_chat():
     """
-    Handles chat messages, routing them to the appropriate agent (RAG or OpenAPI)
+    Handles chat messages, routing them to the appropriate agent (RAG, JSONPLACEHOLDER_API, PRICES_COMPARISON_API)
     or to a general knowledge fallback based on the user's query intent,
     considering conversation history.
     """
@@ -313,7 +335,8 @@ def bot_chat():
             agent_sessions[session_id] = {
                 "memory": ConversationBufferMemory(memory_key="chat_history", return_messages=True),
                 "rag_adk_session_id": None,
-                "openapi_adk_session_id": None
+                "openapi_adk_session_id": None, # For JSONPlaceholder
+                "prices_comparison_adk_session_id": None # NEW: For Prices Comparison
             }
             logger.info(f"Initialized new state for session: {session_id}")
 
@@ -330,7 +353,8 @@ def bot_chat():
                 decision = decision_raw.strip().upper()
                 logger.info(f"Orchestrator decision for '{user_message}' (with history): '{decision_raw.strip()}' -> '{decision}'")
 
-                valid_decisions = {'RAG', 'OPENAPI', 'GENERAL_KNOWLEDGE'}
+                # IMPORTANT: Updated valid_decisions to include new agent type
+                valid_decisions = {'RAG', 'JSONPLACEHOLDER_API', 'PRICES_COMPARISON_API', 'GENERAL_KNOWLEDGE'}
                 if decision not in valid_decisions:
                     logger.warning(f"Orchestrator returned an invalid decision '{decision}'. Forcing to GENERAL_KNOWLEDGE.")
                     decision = 'GENERAL_KNOWLEDGE'
@@ -339,6 +363,7 @@ def bot_chat():
                 logger.error(f"Error during orchestrator routing decision for '{user_message}': {e}", exc_info=True)
                 decision = 'GENERAL_KNOWLEDGE'
 
+        # --- RAG Agent Handling (Existing) ---
         if decision == 'RAG' and rag_agent_client:
             logger.info(f"Routing query to RAG Agent: '{user_message}'")
             rag_adk_session_id = agent_sessions[session_id].get("rag_adk_session_id")
@@ -358,7 +383,7 @@ def bot_chat():
                     agent_response = "I couldn't start a session for RAG. Falling back to general knowledge."
                     decision = 'GENERAL_KNOWLEDGE'
 
-            if decision == 'RAG':
+            if decision == 'RAG': # Re-check decision in case of fallback
                 try:
                     rag_actual_content = ""
                     response_stream = rag_agent_client.stream_query(
@@ -367,7 +392,6 @@ def bot_chat():
                         message=user_message,
                     )
                     for event in response_stream:
-                        # logger.debug(f"RAG Stream Event: {pprint.pformat(event)}") # Log full event
                         if isinstance(event, dict):
                             if "content" in event and "parts" in event["content"]:
                                 for part in event["content"]["parts"]:
@@ -398,7 +422,7 @@ def bot_chat():
                                 found_meaningful_answer = False
                                 logger.info(f"RAG Agent response contained no meaningful answer indicator: '{indicator}'.")
                                 break
-                    
+
                     if not found_meaningful_answer:
                         logger.info(f"RAG Agent did not provide a substantive answer. Falling back to general knowledge for '{user_message}'.")
                         decision = 'GENERAL_KNOWLEDGE'
@@ -411,40 +435,40 @@ def bot_chat():
                     decision = 'GENERAL_KNOWLEDGE'
 
 
-        if decision == 'OPENAPI' and openapi_agent_client:
-            logger.info(f"Routing query to OpenAPI Agent: '{user_message}'")
+        # --- JSONPlaceholder OpenAPI Agent Handling (Existing) ---
+        if decision == 'OPENAPI' and jsonplaceholder_agent_client: # Renamed openapi_agent_client
+            logger.info(f"Routing query to JSONPlaceholder OpenAPI Agent: '{user_message}'")
             openapi_adk_session_id = agent_sessions[session_id].get("openapi_adk_session_id")
             if not openapi_adk_session_id and adk_session_service:
                  try:
-                    logger.info(f"Creating new ADK session for OpenAPI agent, Flask session {session_id}, user {user_id}")
+                    logger.info(f"Creating new ADK session for JSONPlaceholder OpenAPI agent, Flask session {session_id}, user {user_id}")
                     openapi_adk_session = asyncio.run(adk_session_service.create_session(
                         app_name=OPENAPI_AGENT_ENGINE_ID,
                         user_id=user_id
                     ))
                     openapi_adk_session_id = openapi_adk_session.id
                     agent_sessions[session_id]["openapi_adk_session_id"] = openapi_adk_session_id
-                    logger.info(f"Created ADK session {openapi_adk_session_id} for OpenAPI agent.")
+                    logger.info(f"Created ADK session {openapi_adk_session_id} for JSONPlaceholder OpenAPI agent.")
                  except Exception as e:
-                    logger.error(f"Failed to create ADK session for OpenAPI agent {user_id}/{session_id}: {e}", exc_info=True)
-                    agent_response = "I couldn't start a session for the OpenAPI service. Falling back to general knowledge."
+                    logger.error(f"Failed to create ADK session for JSONPlaceholder OpenAPI agent {user_id}/{session_id}: {e}", exc_info=True)
+                    agent_response = "I couldn't start a session for the JSONPlaceholder OpenAPI service. Falling back to general knowledge."
                     decision = 'GENERAL_KNOWLEDGE'
 
-            if decision == 'OPENAPI':
+            if decision == 'OPENAPI': # Re-check decision in case of fallback
                 try:
                     openapi_actual_content = ""
-                    response_stream = openapi_agent_client.stream_query(
+                    response_stream = jsonplaceholder_agent_client.stream_query( # Renamed openapi_agent_client
                         user_id=user_id,
                         session_id=openapi_adk_session_id,
                         message=user_message,
                     )
                     for event in response_stream:
-                        # logger.debug(f"OpenAPI Stream Event: {pprint.pformat(event)}") # Log full event
                         if isinstance(event, dict):
                             if "content" in event and "parts" in event["content"]:
                                 for part in event["content"]["parts"]:
                                     if "text" in part:
                                         openapi_actual_content += part["text"]
-                            
+
                             if "tool_outputs" in event and isinstance(event["tool_outputs"], list):
                                 for output in event["tool_outputs"]:
                                     if "data" in output and output["data"] is not None:
@@ -462,20 +486,87 @@ def bot_chat():
                             if isinstance(event, str): openapi_actual_content += event
 
                     agent_response = openapi_actual_content.strip()
-                    
-                    logger.debug(f"Final OpenAPI actual content before return: \n{agent_response}") # Log final content
+
+                    logger.debug(f"Final JSONPlaceholder OpenAPI actual content before return: \n{agent_response}")
 
                     if not agent_response:
-                        logger.warning(f"OpenAPI Agent returned empty content for '{user_message}'. Falling back to general knowledge.")
+                        logger.warning(f"JSONPlaceholder OpenAPI Agent returned empty content for '{user_message}'. Falling back to general knowledge.")
                         decision = 'GENERAL_KNOWLEDGE'
                     else:
-                        logger.info(f"OpenAPI Agent successfully answered. Response: '{agent_response[:100]}...'")
+                        logger.info(f"JSONPlaceholder OpenAPI Agent successfully answered. Response: '{agent_response[:100]}...'")
 
                 except Exception as e:
-                    logger.error(f"Error querying OpenAPI Agent for '{user_message}' (ADK Session: {openapi_adk_session_id}): {e}", exc_info=True)
-                    agent_response = "I encountered an error while interacting with the OpenAPI service. Falling back to general knowledge."
+                    logger.error(f"Error querying JSONPlaceholder OpenAPI Agent for '{user_message}' (ADK Session: {openapi_adk_session_id}): {e}", exc_info=True)
+                    agent_response = "I encountered an error while interacting with the JSONPlaceholder OpenAPI service. Falling back to general knowledge."
                     decision = 'GENERAL_KNOWLEDGE'
 
+
+        # --- NEW: Prices Comparison Agent Handling ---
+        if decision == 'PRICES_COMPARISON_API' and prices_comparison_agent_client:
+            logger.info(f"Routing query to Prices Comparison Agent: '{user_message}'")
+            prices_comparison_adk_session_id = agent_sessions[session_id].get("prices_comparison_adk_session_id")
+            if not prices_comparison_adk_session_id and adk_session_service:
+                 try:
+                    logger.info(f"Creating new ADK session for Prices Comparison agent, Flask session {session_id}, user {user_id}")
+                    prices_comparison_adk_session = asyncio.run(adk_session_service.create_session(
+                        app_name=PRICES_COMPARE_AGENT_ENGINE_ID, # Use the correct env var for this agent
+                        user_id=user_id
+                    ))
+                    prices_comparison_adk_session_id = prices_comparison_adk_session.id
+                    agent_sessions[session_id]["prices_comparison_adk_session_id"] = prices_comparison_adk_session_id
+                    logger.info(f"Created ADK session {prices_comparison_adk_session_id} for Prices Comparison agent.")
+                 except Exception as e:
+                    logger.error(f"Failed to create ADK session for Prices Comparison agent {user_id}/{session_id}: {e}", exc_info=True)
+                    agent_response = "I couldn't start a session for the Prices Comparison service. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+            if decision == 'PRICES_COMPARISON_API': # Re-check decision in case of fallback
+                try:
+                    prices_comparison_actual_content = ""
+                    response_stream = prices_comparison_agent_client.stream_query(
+                        user_id=user_id,
+                        session_id=prices_comparison_adk_session_id,
+                        message=user_message,
+                    )
+                    for event in response_stream:
+                        if isinstance(event, dict):
+                            if "content" in event and "parts" in event["content"]:
+                                for part in event["content"]["parts"]:
+                                    if "text" in part:
+                                        prices_comparison_actual_content += part["text"]
+
+                            if "tool_outputs" in event and isinstance(event["tool_outputs"], list):
+                                for output in event["tool_outputs"]:
+                                    if "data" in output and output["data"] is not None:
+                                        try:
+                                            formatted_output = json.dumps(output["data"], indent=2)
+                                            prices_comparison_actual_content += f"\n```json\n{formatted_output}\n```\n"
+                                        except (json.JSONDecodeError, TypeError):
+                                            prices_comparison_actual_content += f"\nTool Output: {str(output['data'])}\n"
+
+                            if "tool_code" in event: logger.debug(f"Prices Comparison tool_code: {event.get('tool_code')}")
+                            if "state_delta" in event: logger.debug(f"Prices Comparison state_delta: {event.get('state_delta')}")
+                            if "actions" in event: logger.debug(f"Prices Comparison actions: {event.get('actions')}")
+                        else:
+                            logger.warning(f"Received unexpected event type from Prices Comparison stream: {type(event)}. Content: {event}")
+                            if isinstance(event, str): prices_comparison_actual_content += event
+
+                    agent_response = prices_comparison_actual_content.strip()
+
+                    logger.debug(f"Final Prices Comparison actual content before return: \n{agent_response}")
+
+                    if not agent_response:
+                        logger.warning(f"Prices Comparison Agent returned empty content for '{user_message}'. Falling back to general knowledge.")
+                        decision = 'GENERAL_KNOWLEDGE'
+                    else:
+                        logger.info(f"Prices Comparison Agent successfully answered. Response: '{agent_response[:100]}...'")
+
+                except Exception as e:
+                    logger.error(f"Error querying Prices Comparison Agent for '{user_message}' (ADK Session: {prices_comparison_adk_session_id}): {e}", exc_info=True)
+                    agent_response = "I encountered an error while interacting with the Prices Comparison service. Falling back to general knowledge."
+                    decision = 'GENERAL_KNOWLEDGE'
+
+        # --- General Knowledge Handling (Existing) ---
         if decision == 'GENERAL_KNOWLEDGE':
             logger.info(f"Routing query to General Knowledge LLM: '{user_message}'")
             messages_for_gk = chat_history + [HumanMessage(content=user_message)]
@@ -490,9 +581,9 @@ def bot_chat():
             try:
                 if general_knowledge_chain is None:
                     raise Exception("General knowledge chain is not initialized.")
-                
+
                 gk_response = general_knowledge_chain.invoke({"query": user_message, "chat_history": cleaned_messages_for_gk})
-                
+
                 if gk_response and "I'm sorry, I don't have enough general knowledge" not in gk_response:
                     agent_response = gk_response
                     logger.info(f"General knowledge LLM provided an answer. Response: '{agent_response[:100]}...'")
@@ -502,14 +593,14 @@ def bot_chat():
             except Exception as e:
                 logger.error(f"Error querying General Knowledge LLM for '{user_message}': {e}", exc_info=True)
                 agent_response = "I encountered an error while trying to use my general knowledge."
-        
+
         if not agent_response.strip():
             agent_response = "I apologize, but I couldn't provide a specific answer for that query at this time. It might be outside my current capabilities or require more context."
             logger.warning(f"All agent paths and general knowledge failed for '{user_message}'. Returning generic fallback.")
 
 
         current_memory.save_context({"input": user_message}, {"output": agent_response})
-            
+
         response_data = {"status": "success", "response": agent_response, "session_id": session_id}
         flask_response = jsonify(response_data)
         flask_response.headers['X-Session-ID'] = session_id
@@ -588,7 +679,7 @@ if __name__ == "__main__":
     try:
         from gunicorn.app.wsgiapp import WSGIApplication
         from gunicorn.config import Config as GunicornConfig
-        
+
         class StandaloneApplication(WSGIApplication):
             def __init__(self, app_name, options=None):
                 self.options = options or {}
