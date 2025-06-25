@@ -1,32 +1,45 @@
+# agent_clients.py
 import os
 import vertexai
 from vertexai import agent_engines
-import logging
 
-# Configure logging for this module
-logger = logging.getLogger(__name__)
-logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
+# Assume the ADK agent.py is in the same directory or import path allows access
+from agent import root_agent as jsonplaceholder_root_agent # Rename to avoid conflict
+# We will effectively replace this with a more generic root_agent that includes all
+# your API agents. For now, let's assume `agent.py` contains the combined `root_agent`.
 
-
-def _get_agent_engine_client(agent_engine_id_env_var: str):
-    """Retrieves an AgentEngine client from Vertex AI based on an environment variable."""
-    agent_engine_id = os.environ.get(agent_engine_id_env_var)
-    if not agent_engine_id:
-        logger.error(f"Missing required environment variable: {agent_engine_id_env_var}")
-        return None # Return None if ID is missing, caller should handle
-
-    try:
-        client = agent_engines.get(agent_engine_id)
-        logger.info(f"Successfully retrieved Agent Engine client for {agent_engine_id_env_var}: {agent_engine_id}")
-        return client
-    except Exception as e:
-        logger.error(f"Failed to retrieve Agent Engine client for {agent_engine_id_env_var} ({agent_engine_id}): {e}")
-        return None
-
+# Placeholder for RAG client (as per your app.py)
 def get_rag_agent_client():
-    """Returns the client for the RAG Agent Engine."""
-    return _get_agent_engine_client("AGENT_ENGINE_ID")
+    # Placeholder for your RAG agent client setup
+    # This might involve creating an agent_engines.Agent and returning it
+    rag_agent_client_name = os.getenv("RAG_AGENT_CLIENT_NAME", "your-rag-agent-name")
+    rag_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    rag_location = os.getenv("GOOGLE_CLOUD_LOCATION")
+    # Example:
+    # return agent_engines.Agent.lookup(
+    #     project=rag_project_id,
+    #     location=rag_location,
+    #     display_name=rag_agent_client_name
+    # )
+    return None # Replace with actual RAG client instantiation
 
-def get_openapi_agent_client():
-    """Returns the client for the OpenAPI Agent Engine."""
-    return _get_agent_engine_client("OPENAPI_AGENT_ENGINE_ID")
+
+# Modified to get a generic API agent client that includes all OpenAPI-based agents
+def get_api_agent_client():
+    """Returns the API agent client (e.g., JSONPlaceholder + Prices Comparison)."""
+    api_agent_client_name = os.getenv("API_AGENT_CLIENT_NAME", "your-api-agent-name")
+    api_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    api_location = os.getenv("GOOGLE_CLOUD_LOCATION")
+
+    # In a real deployment, you would lookup an already deployed agent.
+    # For local testing, we are directly creating the agent instance.
+    # Ensure root_agent in agent.py includes all sub-agents and their tools.
+    # If the root_agent in agent.py is the one orchestrating all APIs,
+    # then you can use that directly.
+    return jsonplaceholder_root_agent # Assuming the 'root_agent' from agent.py is now the comprehensive one
+    # If you deploy it to Vertex AI Agent Builder, you'd do:
+    # return agent_engines.Agent.lookup(
+    #     project=api_project_id,
+    #     location=api_location,
+    #     display_name=api_agent_client_name
+    # )
