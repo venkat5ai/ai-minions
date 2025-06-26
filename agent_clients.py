@@ -27,6 +27,10 @@ def get_rag_agent_client():
     """Returns the client for the RAG Agent Engine."""
     return _get_agent_engine_client("AGENT_ENGINE_ID")
 
-def get_openapi_agent_client():
-    """Returns the client for the OpenAPI Agent Engine."""
+def get_jsonplaceholder_agent_client():
+    """Returns the client for the JSONPlaceHolderAPI Agent Engine."""
     return _get_agent_engine_client("OPENAPI_AGENT_ENGINE_ID")
+
+def get_prices_comparison_agent_client():
+    """Returns the client for the PricesCompareAPI Agent Engine."""
+    return _get_agent_engine_client("PRICES_COMPARE_AGENT_ENGINE_ID")

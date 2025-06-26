@@ -1,0 +1,78 @@
+# prices_comparison_agent_folder/prices_comparison_spec.yaml
+openapi: 3.0.0
+info:
+  title: Prices Comparison API
+  version: "1.0.0"
+  description: API for comparing prices of products across various shops.
+servers:
+  - url: https://zylalabs.com/api/2332/prices+comparison+api/2242
+
+paths:
+  /compare+prices:
+    get:
+      summary: Compare prices for a given product query.
+      operationId: comparePrices
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The product query (e.g., "iphone", "laptop").
+      responses:
+        '200':
+          description: A list of product listings with their prices and shop information.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductListing'
+        '401':
+          description: Unauthorized - Invalid or missing API key.
+        '500':
+          description: Internal server error.
+components:
+  schemas:
+    ProductListing:
+      type: object
+      properties:
+        title:
+          type: string
+          description: The title of the product listing.
+        price:
+          type: string
+          description: The price of the product, including currency and any qualifiers (e.g., "refurbished").
+        shop:
+          type: string
+          description: The name of the shop selling the product.
+        shipping:
+          type: string
+          description: Shipping information (e.g., "Free shipping").
+        rating:
+          type: string
+          description: Product rating (e.g., "4.5 out of 5 stars").
+        reviews:
+          type: string
+          description: Number of reviews (e.g., "(76,009)").
+        link:
+          type: string
+          format: url
+          description: URL to the product page.
+        img:
+          type: string
+          format: url
+          description: URL to the product image.
+      required:
+        - title
+        - price
+        - shop
+        - link
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT # Or any other format if specified, but bearer is common
+      description: API key for authentication, provided as a Bearer token.
+security:
+  - ApiKeyAuth: []

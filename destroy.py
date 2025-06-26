@@ -20,7 +20,7 @@ GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "api-project-5071546145
 VERTEX_AI_LOCATION = os.getenv("VERTEX_AI_LOCATION", "us-central1")
 # Get AGENT_ENGINE_ID from .env or command line if passed
 # AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID")
-AGENT_ENGINE_ID = os.getenv("OPENAPI_AGENT_ENGINE_ID")
+AGENT_ENGINE_ID = os.getenv("PRICES_COMPARE_AGENT_ENGINE_ID")
 
 async def destroy_agent_engine(agent_engine_id: str):
     """
