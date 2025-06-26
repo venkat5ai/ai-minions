@@ -97,7 +97,7 @@ LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
 STAGING_BUCKET = os.environ.get("STAGING_BUCKET")
 RAG_CORPUS = os.environ.get("RAG_CORPUS")
 
-LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-1.5-flash-001")
+LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-2.0-flash-001")
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", 0.2))
 
 DOCUMENT_STORAGE_DIRECTORY = os.environ.get("DOCUMENT_STORAGE_DIRECTORY", "/app/data")

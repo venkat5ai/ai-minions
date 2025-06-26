@@ -1,4 +1,4 @@
-# prices/tools.py
+# pricesapi/tools.py
 import os
 import json
 import yaml
