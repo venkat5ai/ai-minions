@@ -1,0 +1,60 @@
+# Use a slim Python 3.10 Debian-based image as the base.
+# This provides a minimal Python environment on a glibc-based Linux distribution,
+# which is compatible with Playwright's pre-built browser binaries.
+FROM python:3.10-slim-buster
+
+# Set environment variables for Python buffering.
+ENV PYTHONUNBUFFERED=1
+
+# Install system-level dependencies required by Playwright browsers.
+# These include essential libraries for rendering web content (fonts, graphics, etc.).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    # General utilities (optional, but often useful)
+    curl \
+    unzip \
+    # Playwright browser runtime dependencies for Debian/Ubuntu:
+    # Based on Playwright's official Docker images for dependencies.
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm-dev \
+    libgtk-3-0 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    # Fonts, critical for rendering web pages correctly
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # Clean up apt caches to reduce image size
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set the working directory inside the container.
+WORKDIR /app
+
+# Upgrade pip to the latest version.
+RUN pip install --upgrade pip
+
+# Install crawl4ai (which includes playwright as a dependency)
+# Ensure this step and the playwright install step are in the same RUN command
+# to guarantee the 'playwright' module is available immediately after pip installation.
+RUN pip install --no-cache-dir \
+    crawl4ai[all] && \
+    # Install Playwright browser binaries for Chromium, Firefox, and WebKit.
+    # This downloads the actual browser executables into the Docker image.
+    python3 -m playwright install
+
+# You can add your Python script here if you want to run it directly
+# COPY your_script.py .
+
+# Command to run your application. For testing, you might just want to keep the container running.
+# Example: CMD ["python3", "your_script.py"]
+# For interactive use, let's default to bash.
+CMD ["bash"]
