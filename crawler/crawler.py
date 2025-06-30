@@ -131,6 +131,7 @@ async def main():
         extraction_strategy=extraction_strategy, # Apply the LLM extraction strategy
         deep_crawl_strategy=deep_crawl_config, # Apply the deep crawling strategy
         scraping_strategy=LXMLWebScrapingStrategy(), # Use LXML for robust HTML cleaning before LLM
+        wait_until="networkidle", # IMPORTANT: Wait for network to be idle to ensure dynamic content loads
     )
 
     results_container = []
@@ -140,14 +141,12 @@ async def main():
 
     # Initialize the AsyncWebCrawler and run the crawl
     async with AsyncWebCrawler(config=browser_config, rate_limiter=rate_limiter) as crawler:
-        # Use arun() for a single starting URL, as per the documentation example
-        # If deep_crawl_strategy is active, arun() also returns a list of CrawlResult objects
+        # Use arun() for a single starting URL, which returns a list of CrawlResult objects when deep_crawl_strategy is active
         results_list = await crawler.arun(url=start_url, config=run_config)
         
-        # Ensure we iterate over the results, whether it's a list or a single object wrapped in a list
-        # The documentation states arun returns list[CrawlResult] when deep_crawl_strategy is active.
+        # Ensure results_list is always an iterable
         if not isinstance(results_list, list):
-            results_list = [results_list] # Ensure it's always iterable if arun returns a single object
+            results_list = [results_list] 
 
         for result in results_list:
             print(f"\n--- Processing {result.url} ---")
@@ -167,6 +166,25 @@ async def main():
                     print(f"   LLM might not have found relevant data or page was empty or format was unexpected.")
                 else:
                     print(f"ℹ️ Successfully crawled non-detail page: {result.url}")
+                    # --- DEBUGGING: Print Discovered Links ---
+                    if result.links and isinstance(result.links, dict): # Ensure it's a non-empty dictionary
+                        outgoing_links = result.links.get('outgoing', [])
+                        internal_links = result.links.get('internal', [])
+                        
+                        if outgoing_links:
+                            print(f"  Discovered {len(outgoing_links)} outgoing links:")
+                            for link in outgoing_links:
+                                print(f"    - OUTGOING: {link}")
+                        if internal_links:
+                            print(f"  Discovered {len(internal_links)} internal links:")
+                            for link in internal_links:
+                                print(f"    - INTERNAL: {link}")
+                        
+                        if not outgoing_links and not internal_links:
+                            print(f"  No links (outgoing or internal) discovered on this page.")
+                    else:
+                        print(f"  No link information available or not in expected dictionary format in CrawlResult for this page.")
+                    # --- END DEBUGGING ---
             else:
                 print(f"❌ Crawl failed for {result.url}: {result.error_message}")
 
@@ -175,8 +193,7 @@ async def main():
         json.dump(results_container, outfile, indent=4, ensure_ascii=False)
 
     print(f"\n--- Crawl Summary ---")
-    # This summary count is approximate as deep crawl behavior with errors can be complex
-    print(f"Total pages attempted (including start page): {len(results_container) + (0 if successful_extractions == len(results_container) else (max_pages_to_crawl - successful_extractions))}") 
+    print(f"Total pages attempted (including start page): {len(results_list)}")
     print(f"Total successful car extractions: {successful_extractions}")
     print(f"All extracted details saved to '{output_filename}'")
 
