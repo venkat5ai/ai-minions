@@ -140,8 +140,16 @@ async def main():
 
     # Initialize the AsyncWebCrawler and run the crawl
     async with AsyncWebCrawler(config=browser_config, rate_limiter=rate_limiter) as crawler:
-        results = await crawler.arun_many(urls=[start_url], config=run_config)
-        for result in results:
+        # Use arun() for a single starting URL, as per the documentation example
+        # If deep_crawl_strategy is active, arun() also returns a list of CrawlResult objects
+        results_list = await crawler.arun(url=start_url, config=run_config)
+        
+        # Ensure we iterate over the results, whether it's a list or a single object wrapped in a list
+        # The documentation states arun returns list[CrawlResult] when deep_crawl_strategy is active.
+        if not isinstance(results_list, list):
+            results_list = [results_list] # Ensure it's always iterable if arun returns a single object
+
+        for result in results_list:
             print(f"\n--- Processing {result.url} ---")
             if result.success:
                 if result.extracted_content and vehicle_details_compiled_regex.match(result.url):
@@ -160,7 +168,6 @@ async def main():
                 else:
                     print(f"ℹ️ Successfully crawled non-detail page: {result.url}")
             else:
-                # This is where the 'list' object has no attribute 'status_code' error appears to be caught and reported by crawl4ai.
                 print(f"❌ Crawl failed for {result.url}: {result.error_message}")
 
     # Write all extracted data to a JSON file
@@ -168,7 +175,8 @@ async def main():
         json.dump(results_container, outfile, indent=4, ensure_ascii=False)
 
     print(f"\n--- Crawl Summary ---")
-    print(f"Total pages attempted (including start page): {len(results_container) + (0 if successful_extractions == len(results_container) else (max_pages_to_crawl - successful_extractions))}") # Approximation
+    # This summary count is approximate as deep crawl behavior with errors can be complex
+    print(f"Total pages attempted (including start page): {len(results_container) + (0 if successful_extractions == len(results_container) else (max_pages_to_crawl - successful_extractions))}") 
     print(f"Total successful car extractions: {successful_extractions}")
     print(f"All extracted details saved to '{output_filename}'")
 
