@@ -131,7 +131,8 @@ async def main():
         extraction_strategy=extraction_strategy, # Apply the LLM extraction strategy
         deep_crawl_strategy=deep_crawl_config, # Apply the deep crawling strategy
         scraping_strategy=LXMLWebScrapingStrategy(), # Use LXML for robust HTML cleaning before LLM
-        wait_until="networkidle", # IMPORTANT: Wait for network to be idle to ensure dynamic content loads
+        wait_until="load", # Changed to "load" from "networkidle" to prevent timeout
+        page_timeout=90000, # Keep increased timeout
     )
 
     results_container = []
