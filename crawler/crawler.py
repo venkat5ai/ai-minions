@@ -48,20 +48,16 @@ class CarListing(BaseModel):
 
 async def main():
     # --- Configuration ---
-    # Updated start_url based on your feedback for the main vehicle listing page
     start_url = "https://www.randymarion.com/searchall.aspx"
     
-    # Updated Regex to identify individual vehicle details pages, now accounting for subdomains
-    # e.g., https://www.randymarionford.com/new-Statesville-2021-Ford-E+450SD-Base+DRW-1FDXE4FN1MDC21403
-    # This pattern captures pages on any randymarion*.com subdomain that start with /new- or /used-
-    vehicle_details_pattern = r"https://www\.randymarion\w*\.com/(new|used)-.*"
+    # Updated Regex to identify individual vehicle details pages, now accounting for .com and .net subdomains
+    vehicle_details_pattern = r"https://www\.randymarion\w*\.(com|net)/(new|used)-.*"
     vehicle_details_compiled_regex = re.compile(vehicle_details_pattern)
     
     max_pages_to_crawl = 200 # Limit the number of pages for this example
     output_filename = "extracted_cars.json"
 
     # Ensure GOOGLE_API_KEY environment variable is set for LLM access
-    # You can set it like: export GOOGLE_API_KEY="your_api_key_here"
     google_api_key = os.environ.get("GOOGLE_API_KEY")
     if not google_api_key:
         print("Error: GOOGLE_API_KEY environment variable not set. LLM features may not work.")
@@ -87,33 +83,36 @@ async def main():
         Mileage should be an integer.
         The URL should be the canonical URL of the listing page.
         """,
-        # Pass temperature and max_tokens via extra_args as per the example
         extra_args={"temperature": 0.1, "max_tokens": 1000},
     )
 
     # Define URL filters for deep crawling
-    # IMPORTANT: Updated to allow crawling on all randymarion*.com subdomains
+    # Updated to allow crawling on all randymarion*.com and randymarion*.net subdomains
     allowed_patterns = [
-        r"https://www\.randymarion\w*\.com/.*" # Allows randymarion.com, randymarionford.com, randymarionhonda.com, etc.
+        r"https://www\.randymarion\w*\.(com|net)/.*" # Allows randymarion.com, randymarionford.com, randymarionhonda.com, etc., and their .net counterparts.
     ]
-    # Denies common non-HTML file types
-    denied_patterns = [
-        r".*\.(pdf|jpg|png|gif|zip|css|js|xml|ico|txt|mp4|webp|svg|woff|woff2|ttf|eot|json|csv|rtf|xls|xlsx|doc|docx|ppt|pptx|gz|rar|7z)$"
+    # Denies common non-HTML file types and specific content pages
+    denied_file_types_pattern = r".*\.(pdf|jpg|png|gif|zip|css|js|xml|ico|txt|mp4|webp|svg|woff|woff2|ttf|eot|json|csv|rtf|xls|xlsx|doc|docx|ppt|pptx|gz|rar|7z)$"
+    denied_content_pages_patterns = [
+        r".*sitemap\.aspx.*", # Deny sitemap and related paths
+        r".*/join-the-team.*", # Deny career/join the team pages
+        r".*/about-randy-marion\.html", # Deny about us page
+        r".*/privacy-policy\.html" # Deny privacy policy page
     ]
 
-    # Create URLPatternFilter instances, using 'reverse' parameter for allow/deny
-    allowed_filter = URLPatternFilter(patterns=allowed_patterns, reverse=False) # False means allow if pattern matches
-    denied_filter = URLPatternFilter(patterns=denied_patterns, reverse=True) # True means deny if pattern matches
+    # Create URLPatternFilter instances
+    allowed_filter = URLPatternFilter(patterns=allowed_patterns, reverse=False)
+    denied_file_types_filter = URLPatternFilter(patterns=[denied_file_types_pattern], reverse=True) # reverse=True means deny if pattern matches
+    denied_content_filter = URLPatternFilter(patterns=denied_content_pages_patterns, reverse=True)
 
-    # Chain the filters (defined but currently not passed to deep_crawl_config for debugging)
-    filter_chain = FilterChain(filters=[allowed_filter, denied_filter])
+    # Chain the filters - re-introduced for filtering control
+    filter_chain = FilterChain(filters=[allowed_filter, denied_file_types_filter, denied_content_filter])
 
     # Deep Crawl Strategy (Breadth-First Search)
-    # Temporarily removed 'filter_chain' to debug the 'list' object has no attribute 'status_code' error.
     deep_crawl_config = BFSDeepCrawlStrategy(
         max_depth=5, # How deep to crawl from the start URL
         max_pages=max_pages_to_crawl, # Maximum total pages to crawl
-        # filter_chain=filter_chain,
+        filter_chain=filter_chain, # Re-instated filter_chain
     )
 
     # Browser Configuration
@@ -124,8 +123,6 @@ async def main():
     )
 
     # Rate Limiter to be polite to the website
-    # Increased base_delay to be more conservative and reduce risk of blocking.
-    # This introduces a random delay between 3.0 and 7.0 seconds per request.
     rate_limiter = RateLimiter(base_delay=(3.0, 7.0), max_delay=60.0, max_retries=3)
 
     # Crawler Run Configuration
@@ -163,6 +160,7 @@ async def main():
                 else:
                     print(f"ℹ️ Successfully crawled non-detail page: {result.url}")
             else:
+                # This is where the 'list' object has no attribute 'status_code' error appears to be caught and reported by crawl4ai.
                 print(f"❌ Crawl failed for {result.url}: {result.error_message}")
 
     # Write all extracted data to a JSON file
