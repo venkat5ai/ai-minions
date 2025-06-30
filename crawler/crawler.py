@@ -102,19 +102,18 @@ async def main():
     ]
 
     # Create URLPatternFilter instances, using 'reverse' parameter for allow/deny
-    # based on observed behavior in your environment and related bug reports.
     allowed_filter = URLPatternFilter(patterns=allowed_patterns, reverse=False) # False means allow if pattern matches
     denied_filter = URLPatternFilter(patterns=denied_patterns, reverse=True) # True means deny if pattern matches
 
-    # Chain the filters
+    # Chain the filters (defined but currently not passed to deep_crawl_config for debugging)
     filter_chain = FilterChain(filters=[allowed_filter, denied_filter])
 
     # Deep Crawl Strategy (Breadth-First Search)
-    # Changed 'url_filters' to 'filters' as a potential fix for the TypeError.
+    # Temporarily removed 'filter_chain' to debug the 'list' object has no attribute 'status_code' error.
     deep_crawl_config = BFSDeepCrawlStrategy(
         max_depth=5, # How deep to crawl from the start URL
         max_pages=max_pages_to_crawl, # Maximum total pages to crawl
-        filter_chain=filter_chain, # Attempting 'filters' as the parameter name
+        # filter_chain=filter_chain,
     )
 
     # Browser Configuration
@@ -125,7 +124,9 @@ async def main():
     )
 
     # Rate Limiter to be polite to the website
-    rate_limiter = RateLimiter(base_delay=(1.0, 3.0), max_delay=60.0, max_retries=3)
+    # Increased base_delay to be more conservative and reduce risk of blocking.
+    # This introduces a random delay between 3.0 and 7.0 seconds per request.
+    rate_limiter = RateLimiter(base_delay=(3.0, 7.0), max_delay=60.0, max_retries=3)
 
     # Crawler Run Configuration
     run_config = CrawlerRunConfig(
@@ -142,7 +143,8 @@ async def main():
 
     # Initialize the AsyncWebCrawler and run the crawl
     async with AsyncWebCrawler(config=browser_config, rate_limiter=rate_limiter) as crawler:
-        async for result in await crawler.arun_many(urls=[start_url], config=run_config, stream=True):
+        results = await crawler.arun_many(urls=[start_url], config=run_config)
+        for result in results:
             print(f"\n--- Processing {result.url} ---")
             if result.success:
                 if result.extracted_content and vehicle_details_compiled_regex.match(result.url):
