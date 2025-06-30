@@ -1,0 +1,67 @@
+# Use a slim Python 3.12 Debian-based image as the base.
+# This provides a minimal Python environment on a glibc-based Linux distribution,
+# which is compatible with Playwright's pre-built browser binaries.
+FROM python:3.12-slim-bookworm
+
+# Set environment variables for Python buffering.
+ENV PYTHONUNBUFFERED=1
+
+# Set the working directory inside the container.
+WORKDIR /app
+
+# Install system-level dependencies for Python build tools and Playwright browsers.
+# 'build-essential' provides compilers and dev tools.
+# The Playwright dependencies are standard for Debian/Ubuntu.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    unzip \
+    # Playwright browser runtime dependencies
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm-dev \
+    libgtk-3-0 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # Clean up apt caches to reduce image size
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to the latest version.
+RUN pip install --no-cache-dir --upgrade pip
+
+# Install crawl4ai and its 'all' dependencies, which includes the 'playwright' Python package.
+# This also makes 'crawl4ai-setup' and 'crawl4ai-doctor' available in the PATH.
+RUN pip install --no-cache-dir crawl4ai[all]
+
+# Install Playwright browser binaries and their *system* dependencies.
+# The '--with-deps' flag tells Playwright to install missing OS dependencies.
+# This ensures Playwright's browsers are fully set up.
+# RUN python3 -m playwright install --with-deps
+
+# Run crawl4ai's post-installation setup.
+# This initializes crawl4ai's internal database and performs other configurations.
+# It should run smoothly as Playwright browsers and dependencies are already handled.
+# We call it directly as it's now in the PATH.
+RUN crawl4ai-setup
+RUN playwright install --with-deps
+
+# Optional: Run diagnostics to confirm everything is functioning.
+# This is typically for verification during development or CI.
+# You can uncomment the line below if you want to run this during the build,
+# but it's often more useful to run interactively after the container starts.
+RUN crawl4ai-doctor
+
+# Command to run your application. For interactive use, default to bash.
+CMD ["bash"]
