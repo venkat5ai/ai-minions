@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
@@ -10,19 +11,18 @@ from crawl4ai import (
     CrawlerRunConfig,
     CacheMode,
     LLMConfig,
+    RateLimiter,
 )
 from crawl4ai.deep_crawling import (
-    BFSDeePCrawlStrategy,
-    DomainFilter,
+    BFSDeepCrawlStrategy,
     URLPatternFilter,
     FilterChain,
-    RateLimiter # Import RateLimiter
 )
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
+from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+
 
 # Define the Pydantic Model for a Car Listing
-# The LLM will try to map the extracted information to these fields.
-# We make most fields Optional, as not all information might be present for every listing.
 class CarListing(BaseModel):
     year: Optional[int] = Field(None, description="The manufacturing year of the vehicle.")
     make: Optional[str] = Field(None, description="The make of the vehicle (e.g., 'Toyota', 'Ford').")
@@ -31,179 +31,147 @@ class CarListing(BaseModel):
     price: Optional[float] = Field(None, description="The selling price of the vehicle, as a numerical value.")
     mileage: Optional[int] = Field(None, description="The mileage of the vehicle, as an integer.")
     exterior_color: Optional[str] = Field(None, description="The exterior color of the vehicle.")
+    interior_color: Optional[str] = Field(None, description="The interior color of the vehicle.")
     vin: Optional[str] = Field(None, description="The Vehicle Identification Number (VIN).")
-    engine: Optional[str] = Field(None, description="Engine specifications (e.g., 'V6 3.5L').")
-    transmission: Optional[str] = Field(None, description="Transmission type (e.g., 'Automatic', 'Manual').")
-    body_style: Optional[str] = Field(None, description="The body style of the vehicle (e.g., 'Sedan', 'SUV', 'Truck').")
-    stock_number: Optional[str] = Field(None, description="The dealership's internal stock number for the vehicle.")
+    stock_number: Optional[str] = Field(None, description="The stock number of the vehicle at the dealership.")
+    body_style: Optional[str] = Field(None, description="The body style of the vehicle (e.g., 'SUV', 'Sedan', 'Truck').")
+    engine: Optional[str] = Field(None, description="The engine specifications of the vehicle.")
+    transmission: Optional[str] = Field(None, description="The transmission type (e.g., 'Automatic', 'Manual').")
+    drive_type: Optional[str] = Field(None, description="The drive type (e.g., 'FWD', 'RWD', 'AWD', '4x4').")
+    fuel_type: Optional[str] = Field(None, description="The fuel type (e.g., 'Gasoline', 'Electric', 'Hybrid').")
+    city_mpg: Optional[int] = Field(None, description="Estimated city miles per gallon.")
+    highway_mpg: Optional[int] = Field(None, description="Estimated highway miles per gallon.")
     features: Optional[List[str]] = Field(None, description="A list of key features or options of the vehicle.")
-    dealer_comments: Optional[str] = Field(None, description="Any specific comments or description provided by the dealership.")
-    eligible_benefits: Optional[List[str]] = Field(None, description="A list of eligible benefits or programs associated with the vehicle.")
+    description: Optional[str] = Field(None, description="A brief description of the vehicle from the listing.")
+    url: Optional[str] = Field(None, description="The URL of the car listing page.")
 
-# Main asynchronous function to perform the crawl
-async def crawl_car_dealership():
-    # --- 1. Configure LLM for Extraction (Using Google Gemini) ---
-    llm_config = LLMConfig(
-        provider="google/gemini-2.0-flash-001",  # Specify the Google Gemini model
-        api_token="",                            # No explicit API token needed for Canvas environment
-        base_url="https://generativelanguage.googleapis.com/v1beta/models/", # Base URL for Google Gemini API
-        temperature=0.1,                         # Lower temperature for more deterministic, factual extraction
-        max_tokens=1000                          # Limit response length to control cost and focus
-    )
 
-    # Define the LLM extraction strategy
-    llm_extraction_strategy = LLMExtractionStrategy(
-        llm_config=llm_config,
-        schema=CarListing.model_json_schema(), # Use the Pydantic model's JSON schema
-        instruction="""
-        Extract all available details for a single vehicle from the provided webpage content.
-        Map the information to the specified schema, inferring types where necessary.
-        Pay close attention to the year, make, model, trim, price, mileage, exterior color,
-        VIN, engine, transmission, body style, stock number, features, dealer comments, and eligible benefits.
-        If a piece of information is not explicitly found on the page, return null for that field.
-        """,
-        input_format="markdown", # Instruct LLM to process the page's Markdown content
-        chunk_token_threshold=1500 # Adjust if pages are very long
-    )
-
-    # --- 2. Configure Deep Crawling ---
-    base_domain = "www.randymarion.com"
-    start_url = f"https://{base_domain}/searchall.aspx" # Corrected start URL
+async def main():
+    # --- Configuration ---
+    # Updated start_url based on your feedback for the main vehicle listing page
+    start_url = "https://www.randymarion.com/searchall.aspx"
     
-    # Filter to only allow crawling within randymarion.com
-    domain_filter = DomainFilter(allowed_domains=[base_domain])
+    # Updated Regex to identify individual vehicle details pages, now accounting for subdomains
+    # e.g., https://www.randymarionford.com/new-Statesville-2021-Ford-E+450SD-Base+DRW-1FDXE4FN1MDC21403
+    # This pattern captures pages on any randymarion*.com subdomain that start with /new- or /used-
+    vehicle_details_pattern = r"https://www\.randymarion\w*\.com/(new|used)-.*"
+    vehicle_details_compiled_regex = re.compile(vehicle_details_pattern)
+    
+    max_pages_to_crawl = 200 # Limit the number of pages for this example
+    output_filename = "extracted_cars.json"
 
-    # URL pattern filter to target only individual vehicle detail pages
-    vehicle_details_pattern_filter = URLPatternFilter(
-        patterns=[r"https://www\.randymarion\.com/VehicleDetails\.aspx\?ID=\d+"]
+    # Ensure GOOGLE_API_KEY environment variable is set for LLM access
+    # You can set it like: export GOOGLE_API_KEY="your_api_key_here"
+    google_api_key = os.environ.get("GOOGLE_API_KEY")
+    if not google_api_key:
+        print("Error: GOOGLE_API_KEY environment variable not set. LLM features may not work.")
+        return
+
+    # LLM Configuration for content extraction
+    llm_config = LLMConfig(
+        provider="gemini/gemini-2.0-flash-001", 
+        api_token=google_api_key,
     )
 
-    # Combine filters into a FilterChain
-    filter_chain = FilterChain(filters=[
-        domain_filter,
-        vehicle_details_pattern_filter
-    ])
-
-    # Configure the BFS (Breadth-First Search) deep crawl strategy
-    bfs_strategy = BFSDeePCrawlStrategy(
-        max_depth=1,         # Crawl initial page, then one level deep (to detail pages)
-        max_pages=20,        # Limit to 20 total pages (for initial testing to save API calls)
-        filter_chain=filter_chain, # Apply our defined filters
-        include_external=False, # Do not follow links outside the allowed domain
-        # --- ADDED: RateLimiter for responsible crawling ---
-        rate_limiter=RateLimiter(
-            mean_delay=2.0,  # Average delay of 2 seconds between requests
-            max_range=1.0    # Randomize delay between 1.0 and 3.0 seconds
-        )
+    # Define the LLM extraction strategy using the Pydantic model
+    extraction_strategy = LLMExtractionStrategy(
+        schema=CarListing.model_json_schema(),
+        llm_config=llm_config,
+        instruction=f"""
+        You are an expert at extracting vehicle information from car dealership websites.
+        Extract all available details for a single car listing based on the provided schema.
+        Focus only on the details of the specific car on the current page.
+        If a field is not explicitly present on the page, return null for that field.
+        Do not make up any information.
+        The price should be a numerical value without currency symbols or commas.
+        Mileage should be an integer.
+        The URL should be the canonical URL of the listing page.
+        """,
+        # Pass temperature and max_tokens via extra_args as per the example
+        extra_args={"temperature": 0.1, "max_tokens": 1000},
     )
 
-    # --- 3. Configure Crawler Run ---
-    run_config = CrawlerRunConfig(
-        deep_crawl_strategy=bfs_strategy,       # Enable deep crawling with BFS
-        extraction_strategy=llm_extraction_strategy, # Apply LLM extraction to each crawled page
-        cache_mode=CacheMode.BYPASS,            # Always fetch fresh content for development
-        word_count_threshold=50,                # Ignore pages with very little content
-        remove_overlay_elements=True,           # Attempt to remove pop-ups/overlays
-        # verbose=True # Uncomment for more detailed logging from crawl4ai
+    # Define URL filters for deep crawling
+    # IMPORTANT: Updated to allow crawling on all randymarion*.com subdomains
+    allowed_patterns = [
+        r"https://www\.randymarion\w*\.com/.*" # Allows randymarion.com, randymarionford.com, randymarionhonda.com, etc.
+    ]
+    # Denies common non-HTML file types
+    denied_patterns = [
+        r".*\.(pdf|jpg|png|gif|zip|css|js|xml|ico|txt|mp4|webp|svg|woff|woff2|ttf|eot|json|csv|rtf|xls|xlsx|doc|docx|ppt|pptx|gz|rar|7z)$"
+    ]
+
+    # Create URLPatternFilter instances, using 'reverse' parameter for allow/deny
+    # based on observed behavior in your environment and related bug reports.
+    allowed_filter = URLPatternFilter(patterns=allowed_patterns, reverse=False) # False means allow if pattern matches
+    denied_filter = URLPatternFilter(patterns=denied_patterns, reverse=True) # True means deny if pattern matches
+
+    # Chain the filters
+    filter_chain = FilterChain(filters=[allowed_filter, denied_filter])
+
+    # Deep Crawl Strategy (Breadth-First Search)
+    # Changed 'url_filters' to 'filters' as a potential fix for the TypeError.
+    deep_crawl_config = BFSDeepCrawlStrategy(
+        max_depth=5, # How deep to crawl from the start URL
+        max_pages=max_pages_to_crawl, # Maximum total pages to crawl
+        filter_chain=filter_chain, # Attempting 'filters' as the parameter name
     )
 
-    # --- 4. Initialize and Run AsyncWebCrawler ---
+    # Browser Configuration
     browser_config = BrowserConfig(
-        headless=True,
-        user_agent_mode="random" # Use a random user agent for stealth
+        headless=True, # Run browser in headless mode (no visible UI)
+        user_agent_mode="random", # Use a random user agent for each request
+        verbose=True, # Enable verbose logging from the browser
     )
 
-    print(f"Starting deep crawl of {start_url} for car listings using Google Gemini...")
-    print(f"Will extract up to {bfs_strategy.max_pages} vehicle detail pages.")
-    print(f"Extracted car details will be saved to 'car-inventory.txt'.")
+    # Rate Limiter to be polite to the website
+    rate_limiter = RateLimiter(base_delay=(1.0, 3.0), max_delay=60.0, max_retries=3)
 
-    output_filename = "car-inventory.txt"
+    # Crawler Run Configuration
+    run_config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS, # Bypass cache for fresh content during development/testing
+        extraction_strategy=extraction_strategy, # Apply the LLM extraction strategy
+        deep_crawl_strategy=deep_crawl_config, # Apply the deep crawling strategy
+        scraping_strategy=LXMLWebScrapingStrategy(), # Use LXML for robust HTML cleaning before LLM
+    )
+
+    results_container = []
     successful_extractions = 0
 
-    # Use AsyncWebCrawler as a context manager for automatic resource cleanup
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        # Open the output file in write mode
-        with open(output_filename, "w", encoding="utf-8") as outfile:
-            outfile.write("--- Randy Marion Car Inventory ---\n\n")
+    print(f"Starting crawl of {start_url} for car listings...")
 
-            results_container = await crawler.arun(url=start_url, config=run_config)
-
-            for i, result in enumerate(results_container):
-                if result.success and result.extracted_content:
+    # Initialize the AsyncWebCrawler and run the crawl
+    async with AsyncWebCrawler(config=browser_config, rate_limiter=rate_limiter) as crawler:
+        async for result in await crawler.arun_many(urls=[start_url], config=run_config, stream=True):
+            print(f"\n--- Processing {result.url} ---")
+            if result.success:
+                if result.extracted_content and vehicle_details_compiled_regex.match(result.url):
                     try:
-                        car_data = json.loads(result.extracted_content)
-                        
-                        if isinstance(car_data, list) and car_data:
-                            car_data_dict = car_data[0]
-                        elif isinstance(car_data, dict):
-                            car_data_dict = car_data
-                        else:
-                            outfile.write(f"\n--- Warning: Unexpected LLM output format for {result.url} ---\n")
-                            outfile.write(f"Raw extracted_content: {result.extracted_content}\n")
-                            continue
-
-                        car_listing_obj = CarListing(**car_data_dict)
+                        car_listing_data = json.loads(result.extracted_content)
+                        car_listing = CarListing(**car_listing_data)
+                        results_container.append(car_listing.model_dump(exclude_unset=True))
                         successful_extractions += 1
-
-                        # Construct the banner for the car
-                        banner_make = car_listing_obj.make or "N/A"
-                        banner_model = car_listing_obj.model or "N/A"
-                        banner_year = car_listing_obj.year or "N/A"
-                        banner = f"--- Car {successful_extractions}: {banner_year} {banner_make} {banner_model} ---\n"
-                        outfile.write(banner)
-                        outfile.write(f"Source URL: {result.url}\n")
-                        
-                        # Write details to the file
-                        outfile.write(f"  Year: {car_listing_obj.year or 'N/A'}\n")
-                        outfile.write(f"  Make: {car_listing_obj.make or 'N/A'}\n")
-                        outfile.write(f"  Model: {car_listing_obj.model or 'N/A'}\n")
-                        outfile.write(f"  Trim: {car_listing_obj.trim or 'N/A'}\n")
-                        outfile.write(f"  Price: ${car_listing_obj.price:,.2f}\n" if car_listing_obj.price is not None else "  Price: N/A\n")
-                        outfile.write(f"  Mileage: {car_listing_obj.mileage:,} miles\n" if car_listing_obj.mileage is not None else "  Mileage: N/A\n")
-                        outfile.write(f"  Exterior Color: {car_listing_obj.exterior_color or 'N/A'}\n")
-                        outfile.write(f"  VIN: {car_listing_obj.vin or 'N/A'}\n")
-                        outfile.write(f"  Engine: {car_listing_obj.engine or 'N/A'}\n")
-                        outfile.write(f"  Transmission: {car_listing_obj.transmission or 'N/A'}\n")
-                        outfile.write(f"  Body Style: {car_listing_obj.body_style or 'N/A'}\n")
-                        outfile.write(f"  Stock Number: {car_listing_obj.stock_number or 'N/A'}\n")
-                        
-                        if car_listing_obj.features:
-                            outfile.write(f"  Features: {', '.join(car_listing_obj.features)}\n")
-                        else:
-                            outfile.write("  Features: N/A\n")
-
-                        if car_listing_obj.eligible_benefits:
-                            outfile.write(f"  Eligible Benefits: {', '.join(car_listing_obj.eligible_benefits)}\n")
-                        else:
-                            outfile.write("  Eligible Benefits: N/A\n")
-
-                        if car_listing_obj.dealer_comments:
-                            outfile.write(f"  Dealer Comments: {car_listing_obj.dealer_comments}\n")
-                        else:
-                            outfile.write("  Dealer Comments: N/A\n")
-                        outfile.write("\n") # Add a blank line for separation
-
-                    except json.JSONDecodeError as e:
-                        outfile.write(f"\n--- Error decoding JSON from LLM for {result.url} ---\n")
-                        outfile.write(f"Error: {e}\n")
-                        outfile.write(f"Raw extracted_content: {result.extracted_content}\n\n")
+                        print(f"✅ Successfully extracted car details from: {result.url}")
                     except Exception as e:
-                        outfile.write(f"\n--- Error processing Pydantic model for {result.url} ---\n")
-                        outfile.write(f"Error: {e}\n")
-                        outfile.write(f"Content from LLM: {result.extracted_content}\n\n")
+                        print(f"❌ Pydantic processing error for {result.url}: {e}")
+                        print(f"   Content from LLM: {result.extracted_content}")
+                elif not result.extracted_content and vehicle_details_compiled_regex.match(result.url):
+                    print(f"⚠️ No content extracted from vehicle details page: {result.url}")
+                    print(f"   LLM might not have found relevant data or page was empty or format was unexpected.")
                 else:
-                    if not result.success:
-                        outfile.write(f"\n--- Crawl Failed for {result.url} ---\n")
-                        outfile.write(f"  Error: {result.error_message}\n\n")
-                    elif not result.extracted_content:
-                        outfile.write(f"\n--- No Content Extracted for {result.url} ---\n")
-                        outfile.write(f"  Page may not be a car detail page or LLM couldn't extract.\n\n")
+                    print(f"ℹ️ Successfully crawled non-detail page: {result.url}")
+            else:
+                print(f"❌ Crawl failed for {result.url}: {result.error_message}")
 
-        print(f"\n--- Crawl Summary ---")
-        print(f"Total pages attempted (including start page): {len(results_container)}")
-        print(f"Total successful car extractions: {successful_extractions}")
-        print(f"All extracted details saved to '{output_filename}'")
+    # Write all extracted data to a JSON file
+    with open(output_filename, 'w', encoding='utf-8') as outfile:
+        json.dump(results_container, outfile, indent=4, ensure_ascii=False)
 
-# Run the asynchronous main function
+    print(f"\n--- Crawl Summary ---")
+    print(f"Total pages attempted (including start page): {len(results_container) + (0 if successful_extractions == len(results_container) else (max_pages_to_crawl - successful_extractions))}") # Approximation
+    print(f"Total successful car extractions: {successful_extractions}")
+    print(f"All extracted details saved to '{output_filename}'")
+
+# Run the main asynchronous function
 if __name__ == "__main__":
-    asyncio.run(crawl_car_dealership())
+    asyncio.run(main())
